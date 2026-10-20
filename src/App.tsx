@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Route, Routes, Navigate, Link } from 'react-router-dom';
 import { assertDatabaseOwner, getDatabaseOwner, isDatabaseOpenFor, isWebDatabase, lockDatabase, mergeDatabaseContents } from './db/database';
 import LocalDataGate from './components/LocalDataGate';
+import CatalogReviewBanner from './components/CatalogReviewBanner';
 import { getCurrentUser, onAuthChange } from './auth/authService';
 import { getAllProcedures, isDatabaseEmpty } from './db/procedureRepository';
 import { isGoogleSignedIn } from './google/googleAuthService';
@@ -21,6 +22,7 @@ import Ajustes from './pages/Ajustes';
 import Importar from './pages/Importar';
 import ResetPassword from './pages/ResetPassword';
 import AuthConfirm from './pages/AuthConfirm';
+import RevisionCatalogo from './pages/RevisionCatalogo';
 
 type RestoreOffer = { date: string } | null;
 
@@ -191,6 +193,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <Layout key={user.id} user={user} onLogout={() => setUser(null)} onLock={isWebDatabase() ? () => { lockDatabase(); setDbReady(false); setCatalogReady(false); setCatalogError(''); setRestoreOffer(null); } : undefined}>
+        <CatalogReviewBanner />
         {restoreOffer && (
           <div className="restore-banner" style={{ background: 'var(--primary)', color: 'white', padding: 12, borderRadius: 8, marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
@@ -213,6 +216,7 @@ export default function App() {
           <Route path="/estadisticas" element={<Estadisticas />} />
           <Route path="/ajustes" element={<Ajustes />} />
           <Route path="/importar" element={<Importar />} />
+          <Route path="/revision-catalogo" element={<RevisionCatalogo />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Layout>
