@@ -1,5 +1,9 @@
 import * as XLSX from 'xlsx';
 import type { Procedure, StoneDetails, StoneProcedureRaw } from './types';
+import {
+  getProcedureWorkbookFields, parseProcedureWorkbookFields, usesStructuredProcedureDetails,
+} from './procedureDetails';
+import { getMigrationReviewCases, migrateProcedureCatalog } from './migrationReview';
 
 export const REQUIRED_IMPORT_COLUMNS = ['fecha', 'categoria', 'procedimiento', 'abordaje', 'rol'];
 const REQUIRED_FIELDS = ['fecha', 'categoria', 'procedimiento', 'abordaje', 'rol'] as const;
@@ -14,7 +18,8 @@ export interface ProcedureImportRow {
 }
 
 const PROCEDURE_COLUMNS = [
-  'id', 'fecha', 'categoria', 'procedimiento', 'abordaje', 'duracion', 'rol',
+  'id', 'fecha', 'categoria', 'procedimiento', 'procedimiento_base',
+  'tipo_derivacion_urinaria', 'tecnica', 'tipo_protesis', 'abordaje', 'duracion', 'rol',
   'cirujano_senior', 'primer_ayudante', 'segundo_ayudante', 'complicaciones',
   'otro_especificar', 'created_at', 'updated_at', 'deleted_at',
 ];
@@ -46,7 +51,19 @@ export function createProcedureWorkbook(
   const headers = getProcedureWorkbookColumns();
   const rows = procedures.map(procedure => {
     const stone = stoneById.get(procedure.id);
-    const values: Record<string, unknown> = { ...procedure, stone_detalles: !!stone };
+    const structured = getProcedureWorkbookFields(procedure.procedimiento, procedure.otro_especificar);
+    const values: Record<string, unknown> = {
+      ...procedure,
+      procedimiento: structured.procedimientoFinal,
+      procedimiento_base: structured.procedimientoBase,
+      tipo_derivacion_urinaria: structured.tipoDerivacionUrinaria || null,
+      tecnica: structured.tecnica || null,
+      tipo_protesis: structured.tipoProtesis || null,
+      otro_especificar: usesStructuredProcedureDetails(structured.procedimientoBase)
+        ? null
+        : procedure.otro_especificar,
+      stone_detalles: !!stone,
+    };
     if (stone) {
       for (const [key, value] of Object.entries(stone)) {
         if (key !== 'procedure_id' && key !== 'procedimiento_raw') values[`stone_${key}`] = value;
@@ -61,6 +78,27 @@ export function createProcedureWorkbook(
   sheet['!cols'] = headers.map(header => ({ wch: Math.min(32, Math.max(16, header.length + 2)) }));
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, sheet, 'UroFolium');
+  const reviewCases = getMigrationReviewCases(procedures);
+  if (reviewCases.length > 0) {
+    const reviewRows = reviewCases.map(item => ({
+      id: item.id,
+      fecha: item.fecha,
+      categoria_actual: item.categoriaActual,
+      procedimiento_actual: item.procedimientoActual,
+      abordaje_actual: item.abordajeActual,
+      problemas: item.problemas.join(' '),
+      categoria_sugerida: item.categoriaSugerida,
+      procedimiento_sugerido: item.procedimientoSugerido,
+      abordaje_sugerido: item.abordajeSugerido,
+      accion_requerida: item.accionRequerida,
+    }));
+    const reviewSheet = XLSX.utils.json_to_sheet(reviewRows);
+    reviewSheet['!cols'] = [
+      { wch: 38 }, { wch: 12 }, { wch: 34 }, { wch: 40 }, { wch: 20 },
+      { wch: 72 }, { wch: 34 }, { wch: 40 }, { wch: 20 }, { wch: 64 },
+    ];
+    XLSX.utils.book_append_sheet(workbook, reviewSheet, 'Pendientes de revisión');
+  }
   return workbook;
 }
 
@@ -154,10 +192,17 @@ export function parseProcedureWorkbook(workbook: XLSX.WorkBook): {
       try { return parser(source[key]); }
       catch (error) { errors.push(`Fila ${index + 2}, ${key}: ${error instanceof Error ? error.message : 'valor no válido'}.`); return undefined; }
     };
+    const parsedProcedure = parseProcedureWorkbookFields(
+      source.procedimiento,
+      source.procedimiento_base,
+      source.tipo_derivacion_urinaria,
+      source.tecnica,
+      source.tipo_protesis,
+    );
     const values: Partial<Procedure> & RequiredFields = {
       fecha: read('fecha', value => normalizeDate(value, date1904)) ?? '',
       categoria: String(source.categoria ?? '').trim(),
-      procedimiento: String(source.procedimiento ?? '').trim(),
+      procedimiento: parsedProcedure.procedimiento,
       abordaje: String(source.abordaje ?? '').trim(),
       rol: String(source.rol ?? '').trim(),
     };
@@ -170,8 +215,21 @@ export function parseProcedureWorkbook(workbook: XLSX.WorkBook): {
       seenIds.add(id);
       values.id = id;
     }
-    for (const field of ['cirujano_senior', 'primer_ayudante', 'segundo_ayudante', 'complicaciones', 'otro_especificar'] as const) {
+    for (const field of ['cirujano_senior', 'primer_ayudante', 'segundo_ayudante', 'complicaciones'] as const) {
       if (has(field)) values[field] = textOrNull(source[field]);
+    }
+    const hasStructuredColumns = [
+      'procedimiento_base', 'tipo_derivacion_urinaria', 'tecnica', 'tipo_protesis',
+    ].some(has);
+    if (hasStructuredColumns && usesStructuredProcedureDetails(parsedProcedure.procedimiento)) {
+      values.otro_especificar = parsedProcedure.storedDetail;
+    } else if (has('otro_especificar')) {
+      values.otro_especificar = textOrNull(source.otro_especificar);
+    } else if (parsedProcedure.storedDetail) {
+      values.otro_especificar = parsedProcedure.storedDetail;
+    }
+    if (parsedProcedure.procedimiento === 'Cistectomía radical' && !values.otro_especificar) {
+      errors.push(`Fila ${index + 2}: Cistectomía radical requiere tipo_derivacion_urinaria.`);
     }
     if (has('ayudante') && !blank(source.ayudante)) {
       const field = ['Segundo ayudante', 'Observador'].includes(values.rol) ? 'primer_ayudante' : 'segundo_ayudante';
@@ -228,11 +286,12 @@ export function materializeProcedureImport(
   const procedures = rows.map(row => {
     const id = row.values.id || row.generatedId;
     const existing = byId.get(id);
-    const procedure: Procedure = {
+    const procedureDraft: Procedure = {
       duracion: null, cirujano_senior: null, primer_ayudante: null, segundo_ayudante: null,
       complicaciones: null, otro_especificar: null, deleted_at: null,
       created_at: now, ...existing, updated_at: now, ...row.values, id,
     };
+    const procedure = migrateProcedureCatalog(procedureDraft, now);
     if (row.stone === null) removeStoneIds.push(id);
     else if (row.stone !== undefined) {
       const existingStone = stoneById.get(id);

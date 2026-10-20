@@ -9,6 +9,7 @@ import { encrypt, decrypt, getPassphrase, savePassphrase, generatePassphrase } f
 import { uploadFileToDrive, downloadLatestBackup, rotateWeeklyBackup, findFileByName } from '../google/driveService';
 import { APP_CONFIG } from '../config/appConfig';
 import { validateBackupPayload } from './backupValidation';
+import { migrateProcedureCatalog } from '../lib/migrationReview';
 import type { BackupPayload, BackupInfo, Procedure } from '../lib/types';
 
 const APP_VERSION = '1.0.0';
@@ -134,7 +135,10 @@ async function restoreBackupFromBlob(blob: Blob, passphrase?: string): Promise<n
   });
 
   assertDatabaseOwner(user.id);
-  await replaceDatabaseContents(payload.data.procedures, payload.data.stoneDetails ?? []);
+  await replaceDatabaseContents(
+    payload.data.procedures.map(procedure => migrateProcedureCatalog(procedure)),
+    payload.data.stoneDetails ?? [],
+  );
   assertDatabaseOwner(user.id);
   if (cleanPassphrase) await savePassphrase(cleanPassphrase);
   assertDatabaseOwner(user.id);
@@ -177,7 +181,7 @@ export async function migrateFromSupabase(): Promise<number> {
   const mapped: Procedure[] = rows.map((r: unknown) => {
     const row = r as Record<string, unknown>;
     const now = new Date().toISOString();
-    return {
+    return migrateProcedureCatalog({
       id: (row.id as string) ?? crypto.randomUUID(),
       fecha: (row.fecha as string) ?? now.slice(0, 10),
       categoria: (row.categoria as string) ?? '',
@@ -193,7 +197,7 @@ export async function migrateFromSupabase(): Promise<number> {
       created_at: (row.created_at as string) ?? now,
       updated_at: (row.updated_at as string) ?? now,
       deleted_at: null,
-    };
+    });
   });
   await upsertProcedures(mapped);
   assertDatabaseOwner(ownerId);

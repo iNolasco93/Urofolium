@@ -3,14 +3,37 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { getAllProcedures, getProcedureById } from '../db/procedureRepository';
 import { getStoneDetailsByProcedureId } from '../db/stoneRepository';
 import { assertDatabaseOwner, getDatabaseOwner, mergeDatabaseContents } from '../db/database';
-import { CATEGORIAS, REGLAS_ABORDAJE, SELECTABLE, ABORDAJES_SELECCIONABLES, TODOS_ABORDAJES, ROLES } from '../lib/categorias';
+import {
+  CATEGORIAS, TODOS_ABORDAJES, ROLES, PATOLOGIA_PROSTATICA,
+  PROCEDIMIENTOS_HBP, OTROS_PROCEDIMIENTOS_PROSTATICOS,
+  getAbordajeFijo, getAbordajesDisponibles, getProcedimientoOrquiectomia,
+} from '../lib/categorias';
+import { decodeProcedureDetails, encodeProcedureDetails } from '../lib/procedureDetails';
 import type { Procedure, StoneDetails, StoneProcedureRaw } from '../lib/types';
 
-const ORQUIECTOMIA_SIMPLE = 'Orquiectomía simple / escrotal';
+const ORQUIECTOMIA_SIMPLE = 'Orquiectomía simple';
 const ORQUIECTOMIA_INGUINAL = 'Orquiectomía inguinal';
-const ORQUIECTOMIA_INGUINAL_PROTESIS = 'Orquiectomía inguinal + prótesis';
+const ORQUIECTOMIA_SIMPLE_PROTESIS = 'Orquiectomía simple con prótesis';
+const ORQUIECTOMIA_INGUINAL_PROTESIS = 'Orquiectomía inguinal con prótesis';
+const PENECTOMIA_PARCIAL = 'Penectomía parcial';
+const PENECTOMIA_TOTAL = 'Penectomía total';
 const LITIASIS = 'Litiasis';
+const CIRUGIA_HBP = 'Cirugía HBP';
+const LEGACY_HBP_PROCEDURES = new Set(['HoLEP/ThuLEP/Láser']);
+const PROCEDIMIENTOS_HBP_SET = new Set<string>(PROCEDIMIENTOS_HBP);
+const BIOPSIA_TESTICULAR_TECNICAS = ['TESE', 'MicroTESE', 'TESA'] as const;
 const LITIASIS_SIMPLE_PROCEDURES = ['Cistolitotricia', 'Cistolitotomía'] as const;
+const DERIVACIONES_CISTECTOMIA = [
+  'Bricker', 'Neovejiga ortotópica', 'Ureterostomía cutánea', 'Nefrostomía',
+  'Colostomía húmeda', 'Mainz II', 'Otra',
+] as const;
+const PROCEDIMIENTOS_CON_TECNICA = new Set([
+  'Cirugía de Peyronie', 'Peyronie', 'Cirugía de Peyronie + Prótesis', 'Peyronie + Prótesis',
+  'Fístula vesico-vaginal',
+]);
+const PROCEDIMIENTOS_CON_TIPO_PROTESIS = new Set([
+  'Prótesis de pene', 'Cirugía de Peyronie + Prótesis', 'Peyronie + Prótesis',
+]);
 const DUPLICATE_DURATION_TOLERANCE_MINUTES = 15;
 
 const STONE_EMPTY = {
@@ -45,6 +68,13 @@ const EMPTY = {
   complicaciones: false,
   complicaciones_detalle: '',
   otro_especificar: '',
+  derivacion_urinaria: '',
+  derivacion_otra: '',
+  tecnica_especificar: '',
+  tipo_protesis: '',
+  holep_thulep: '',
+  penectomia_tipo: '',
+  grupo_prostatico: '',
   orquiectomia_inguinal: false,
   orquiectomia_protesis: false,
   ...STONE_EMPTY,
@@ -116,17 +146,40 @@ function buildDuplicateWarning(duplicates: Procedure[]): string {
   ].join('\n');
 }
 
-function parseStoredProcedure(procedimiento: string): Pick<FormState, 'procedimiento' | 'orquiectomia_inguinal' | 'orquiectomia_protesis'> {
-  if (procedimiento === ORQUIECTOMIA_INGUINAL_PROTESIS) {
-    return { procedimiento: 'Orquiectomía', orquiectomia_inguinal: true, orquiectomia_protesis: true };
+function parseStoredProcedure(procedimiento: string): Pick<FormState, 'procedimiento' | 'penectomia_tipo' | 'orquiectomia_inguinal' | 'orquiectomia_protesis' | 'holep_thulep'> {
+  const base = { penectomia_tipo: '', orquiectomia_inguinal: false, orquiectomia_protesis: false, holep_thulep: '' };
+  if (['Orquiectomía simple / escrotal', 'Orquiectomía simple/escrotal', ORQUIECTOMIA_SIMPLE].includes(procedimiento)) {
+    return { ...base, procedimiento: 'Orquiectomía' };
   }
   if (procedimiento === ORQUIECTOMIA_INGUINAL) {
-    return { procedimiento: 'Orquiectomía', orquiectomia_inguinal: true, orquiectomia_protesis: false };
+    return { ...base, procedimiento: 'Orquiectomía', orquiectomia_inguinal: true };
   }
-  if (procedimiento === ORQUIECTOMIA_SIMPLE) {
-    return { procedimiento: 'Orquiectomía', orquiectomia_inguinal: false, orquiectomia_protesis: false };
+  if (procedimiento === ORQUIECTOMIA_SIMPLE_PROTESIS) {
+    return { ...base, procedimiento: 'Orquiectomía', orquiectomia_protesis: true };
   }
-  return { procedimiento, orquiectomia_inguinal: false, orquiectomia_protesis: false };
+  if (['Orquiectomía inguinal + prótesis', ORQUIECTOMIA_INGUINAL_PROTESIS].includes(procedimiento)) {
+    return { ...base, procedimiento: 'Orquiectomía', orquiectomia_inguinal: true, orquiectomia_protesis: true };
+  }
+  if (procedimiento === PENECTOMIA_PARCIAL) return { ...base, procedimiento: 'Penectomía', penectomia_tipo: 'Parcial' };
+  if (procedimiento === PENECTOMIA_TOTAL) return { ...base, procedimiento: 'Penectomía', penectomia_tipo: 'Total' };
+  if (procedimiento === 'HoLEP' || procedimiento === 'ThuLEP') {
+    return { ...base, procedimiento: 'HoLEP/ThuLEP', holep_thulep: procedimiento };
+  }
+  return { ...base, procedimiento };
+}
+
+function parseStoredDetail(procedimiento: string, detail: string | null): Pick<FormState, 'derivacion_urinaria' | 'derivacion_otra' | 'tecnica_especificar' | 'tipo_protesis'> {
+  const parsed = decodeProcedureDetails(procedimiento, detail);
+  const derivacionesConocidas = new Set<string>(DERIVACIONES_CISTECTOMIA.filter(item => item !== 'Otra'));
+  const derivacionConocida = derivacionesConocidas.has(parsed.tipoDerivacionUrinaria);
+  return {
+    derivacion_urinaria: parsed.tipoDerivacionUrinaria
+      ? derivacionConocida ? parsed.tipoDerivacionUrinaria : 'Otra'
+      : '',
+    derivacion_otra: parsed.tipoDerivacionUrinaria && !derivacionConocida ? parsed.tipoDerivacionUrinaria : '',
+    tecnica_especificar: parsed.tecnica,
+    tipo_protesis: parsed.tipoProtesis,
+  };
 }
 
 function calcularProcedimientoLitiasis(urs: boolean, rirs: boolean, nlpc: boolean): string {
@@ -237,10 +290,26 @@ function buildStoredProcedure(form: FormState): string {
     return getProcedimientoLitiasis(form);
   }
   if (form.procedimiento === 'Otros') return `Otros: ${form.otro_especificar.trim()}`;
-  if (form.procedimiento !== 'Orquiectomía') return form.procedimiento;
-  if (form.orquiectomia_protesis) return ORQUIECTOMIA_INGUINAL_PROTESIS;
-  if (form.orquiectomia_inguinal) return ORQUIECTOMIA_INGUINAL;
-  return ORQUIECTOMIA_SIMPLE;
+  if (form.procedimiento === 'Orquiectomía') {
+    return getProcedimientoOrquiectomia(form.orquiectomia_inguinal, form.orquiectomia_protesis);
+  }
+  if (form.procedimiento === 'Penectomía') {
+    return form.penectomia_tipo === 'Total' ? PENECTOMIA_TOTAL : PENECTOMIA_PARCIAL;
+  }
+  if (form.procedimiento === 'HoLEP/ThuLEP') return form.holep_thulep;
+  return form.procedimiento;
+}
+
+function buildStoredDetail(form: FormState): string | null {
+  if (form.categoria === LITIASIS) return null;
+  if (form.procedimiento === 'Otros') return form.otro_especificar.trim() || null;
+  return encodeProcedureDetails(form.procedimiento, {
+    tipoDerivacionUrinaria: form.derivacion_urinaria === 'Otra'
+      ? form.derivacion_otra
+      : form.derivacion_urinaria,
+    tecnica: form.tecnica_especificar,
+    tipoProtesis: form.tipo_protesis,
+  });
 }
 
 export default function Nuevo() {
@@ -277,6 +346,10 @@ export default function Nuevo() {
 
       const esOtro = data.procedimiento?.startsWith('Otros: ');
       const parsedProcedure = parseStoredProcedure(data.procedimiento || '');
+      const formProcedure = data.categoria === LITIASIS
+        ? data.procedimiento || ''
+        : esOtro ? 'Otros' : parsedProcedure.procedimiento;
+      const parsedDetail = parseStoredDetail(parsedProcedure.procedimiento, data.otro_especificar);
       const stoneForm = data.categoria === LITIASIS
         ? stoneDetailsToForm(await getStoneDetailsByProcedureId(id), data.procedimiento || '')
         : { ...STONE_EMPTY };
@@ -288,7 +361,12 @@ export default function Nuevo() {
         ...stoneForm,
         fecha: String(data.fecha).slice(0, 10),
         categoria: data.categoria || '',
-        procedimiento: data.categoria === LITIASIS ? data.procedimiento || '' : esOtro ? 'Otros' : parsedProcedure.procedimiento,
+        procedimiento: formProcedure,
+        grupo_prostatico: data.categoria === PATOLOGIA_PROSTATICA
+          ? PROCEDIMIENTOS_HBP_SET.has(formProcedure) || LEGACY_HBP_PROCEDURES.has(formProcedure)
+            ? CIRUGIA_HBP
+            : formProcedure
+          : '',
         abordaje: data.abordaje || '',
         duracion: data.duracion ? String(data.duracion) : '',
         rol: data.rol || '',
@@ -298,8 +376,11 @@ export default function Nuevo() {
         complicaciones: tieneComplicaciones,
         complicaciones_detalle: tieneComplicaciones && data.complicaciones !== 'Si' ? data.complicaciones || '' : '',
         otro_especificar: esOtro ? data.procedimiento.replace('Otros: ', '') : '',
+        penectomia_tipo: parsedProcedure.penectomia_tipo,
+        holep_thulep: parsedProcedure.holep_thulep,
         orquiectomia_inguinal: parsedProcedure.orquiectomia_inguinal,
         orquiectomia_protesis: parsedProcedure.orquiectomia_protesis,
+        ...parsedDetail,
       });
     })();
 
@@ -319,14 +400,34 @@ export default function Nuevo() {
       return;
     }
 
-    const regla = REGLAS_ABORDAJE[form.categoria]?.[form.procedimiento];
-    if (regla && regla !== SELECTABLE) {
-      setForm(f => ({ ...f, abordaje: regla }));
+    if (form.procedimiento === 'HoLEP/ThuLEP') {
+      if (!form.holep_thulep) {
+        setForm(f => f.abordaje ? { ...f, abordaje: '' } : f);
+        setAbordajeBloqueado(false);
+        return;
+      }
+      setForm(f => f.abordaje === 'Endoscópico' ? f : { ...f, abordaje: 'Endoscópico' });
+      setAbordajeBloqueado(true);
+      return;
+    }
+
+    if (form.procedimiento === 'Biopsia testicular') {
+      const approach = form.tecnica_especificar === 'TESA'
+        ? 'Percutáneo'
+        : ['TESE', 'MicroTESE'].includes(form.tecnica_especificar) ? 'Abierto' : '';
+      setForm(f => f.abordaje === approach ? f : { ...f, abordaje: approach });
+      setAbordajeBloqueado(!!approach);
+      return;
+    }
+
+    const fixed = getAbordajeFijo(form.categoria, form.procedimiento);
+    if (fixed) {
+      setForm(f => ({ ...f, abordaje: fixed }));
       setAbordajeBloqueado(true);
     } else {
       setAbordajeBloqueado(false);
     }
-  }, [form.categoria, form.procedimiento]);
+  }, [form.categoria, form.procedimiento, form.holep_thulep, form.tecnica_especificar]);
 
   const set = (k: string, v: string | boolean) => setForm(f => ({ ...f, [k]: v }));
 
@@ -353,6 +454,13 @@ export default function Nuevo() {
     procedimiento: '',
     abordaje: '',
     otro_especificar: '',
+    derivacion_urinaria: '',
+    derivacion_otra: '',
+    tecnica_especificar: '',
+    tipo_protesis: '',
+    holep_thulep: '',
+    penectomia_tipo: '',
+    grupo_prostatico: '',
     orquiectomia_inguinal: false,
     orquiectomia_protesis: false,
   }));
@@ -360,22 +468,40 @@ export default function Nuevo() {
   const handleProcedimientoChange = (procedimiento: string) => setForm(f => ({
     ...f,
     procedimiento,
+    abordaje: procedimiento === f.procedimiento ? f.abordaje : '',
     otro_especificar: procedimiento === 'Otros' ? f.otro_especificar : '',
+    derivacion_urinaria: procedimiento === 'Cistectomía radical' ? f.derivacion_urinaria : '',
+    derivacion_otra: procedimiento === 'Cistectomía radical' ? f.derivacion_otra : '',
+    tecnica_especificar: PROCEDIMIENTOS_CON_TECNICA.has(procedimiento) ? f.tecnica_especificar : '',
+    tipo_protesis: PROCEDIMIENTOS_CON_TIPO_PROTESIS.has(procedimiento) ? f.tipo_protesis : '',
+    holep_thulep: procedimiento === 'HoLEP/ThuLEP' ? f.holep_thulep : '',
+    penectomia_tipo: procedimiento === 'Penectomía' ? f.penectomia_tipo : '',
     orquiectomia_inguinal: procedimiento === 'Orquiectomía' ? f.orquiectomia_inguinal : false,
     orquiectomia_protesis: procedimiento === 'Orquiectomía' ? f.orquiectomia_protesis : false,
   }));
 
-  const setOrquiectomiaInguinal = (checked: boolean) => setForm(f => ({
-    ...f,
-    orquiectomia_inguinal: checked,
-    orquiectomia_protesis: checked ? f.orquiectomia_protesis : false,
-  }));
-
-  const setOrquiectomiaProtesis = (checked: boolean) => setForm(f => ({
-    ...f,
-    orquiectomia_inguinal: checked ? true : f.orquiectomia_inguinal,
-    orquiectomia_protesis: checked,
-  }));
+  const handleGrupoProstaticoChange = (grupo: string) => setForm(f => {
+    const mantieneTecnicaHbp = grupo === CIRUGIA_HBP
+      && (PROCEDIMIENTOS_HBP_SET.has(f.procedimiento) || LEGACY_HBP_PROCEDURES.has(f.procedimiento));
+    const procedimiento = grupo === CIRUGIA_HBP
+      ? mantieneTecnicaHbp ? f.procedimiento : ''
+      : grupo;
+    return {
+      ...f,
+      grupo_prostatico: grupo,
+      procedimiento,
+      abordaje: procedimiento === f.procedimiento ? f.abordaje : '',
+      otro_especificar: procedimiento === 'Otros' ? f.otro_especificar : '',
+      derivacion_urinaria: '',
+      derivacion_otra: '',
+      tecnica_especificar: '',
+      tipo_protesis: '',
+      holep_thulep: '',
+      penectomia_tipo: '',
+      orquiectomia_inguinal: false,
+      orquiectomia_protesis: false,
+    };
+  });
 
   const buildStonePayload = (procedureId: string): Omit<StoneDetails, 'created_at' | 'updated_at'> => ({
     procedure_id: procedureId,
@@ -432,6 +558,26 @@ export default function Nuevo() {
       setError('Especifica el procedimiento.');
       return;
     }
+    if (!isLitiasis && form.procedimiento === 'Cistectomía radical' && !form.derivacion_urinaria) {
+      setError('Selecciona el tipo de derivación urinaria.');
+      return;
+    }
+    if (!isLitiasis && form.procedimiento === 'Cistectomía radical' && form.derivacion_urinaria === 'Otra' && !form.derivacion_otra.trim()) {
+      setError('Especifica el tipo de derivación urinaria.');
+      return;
+    }
+    if (!isLitiasis && form.procedimiento === 'Penectomía' && !form.penectomia_tipo) {
+      setError('Selecciona si la penectomía es parcial o total.');
+      return;
+    }
+    if (!isLitiasis && form.procedimiento === 'HoLEP/ThuLEP' && !form.holep_thulep) {
+      setError('Selecciona HoLEP o ThuLEP.');
+      return;
+    }
+    if (!isLitiasis && form.procedimiento === 'Biopsia testicular' && !form.tecnica_especificar) {
+      setError('Selecciona la técnica de biopsia testicular.');
+      return;
+    }
 
     const teamError = validateTeamFields();
     if (teamError) {
@@ -461,7 +607,7 @@ export default function Nuevo() {
       primer_ayudante: requierePrimerAyudante(form.rol) ? form.primer_ayudante.trim() || null : null,
       segundo_ayudante: muestraSegundoAyudante(form.rol) ? form.segundo_ayudante.trim() || null : null,
       complicaciones: form.complicaciones ? form.complicaciones_detalle.trim() || 'Si' : 'No',
-      otro_especificar: !isLitiasis ? form.otro_especificar.trim() || null : null,
+      otro_especificar: buildStoredDetail(form),
     };
 
     try {
@@ -503,9 +649,22 @@ export default function Nuevo() {
     }
   };
 
-  const abordajesDisponibles = abordajeBloqueado
-    ? TODOS_ABORDAJES
-    : (REGLAS_ABORDAJE[form.categoria]?.[form.procedimiento] === SELECTABLE ? ABORDAJES_SELECCIONABLES : TODOS_ABORDAJES);
+  const configuredProcedures = CATEGORIAS[form.categoria] ?? [];
+  const procedimientosDisponibles = form.procedimiento && !configuredProcedures.includes(form.procedimiento)
+    ? [form.procedimiento, ...configuredProcedures]
+    : configuredProcedures;
+  const configuredCategories = Object.keys(CATEGORIAS);
+  const categoriasDisponibles = form.categoria && !configuredCategories.includes(form.categoria)
+    ? [form.categoria, ...configuredCategories]
+    : configuredCategories;
+  const configuredApproaches = getAbordajesDisponibles(form.categoria, form.procedimiento);
+  const abordajesDisponibles = form.abordaje && !configuredApproaches.includes(form.abordaje)
+    ? [form.abordaje, ...configuredApproaches]
+    : configuredApproaches;
+  const abordajePendienteDetalle = (
+    (form.procedimiento === 'HoLEP/ThuLEP' && !form.holep_thulep)
+    || (form.procedimiento === 'Biopsia testicular' && !form.tecnica_especificar)
+  );
 
   return (
     <div>
@@ -523,7 +682,11 @@ export default function Nuevo() {
           <p style={{ fontWeight: 500, fontSize: 14, marginBottom: 6 }}>Categoria *</p>
           <select value={form.categoria} onChange={e => handleCategoriaChange(e.target.value)} required>
             <option value="">Seleccionar categoria</option>
-            {Object.keys(CATEGORIAS).map(cat => <option key={cat} value={cat}>{cat}</option>)}
+            {categoriasDisponibles.map(cat => (
+              <option key={cat} value={cat}>
+                {CATEGORIAS[cat] ? cat : `${cat} (categoría anterior)`}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -774,25 +937,145 @@ export default function Nuevo() {
           </>
         ) : (
           <>
-            <div className="form-group">
-              <p style={{ fontWeight: 500, fontSize: 14, marginBottom: 6 }}>Procedimiento *</p>
-              <select value={form.procedimiento} onChange={e => handleProcedimientoChange(e.target.value)} disabled={!form.categoria} required>
-                <option value="">{form.categoria ? 'Seleccionar procedimiento' : 'Primero elige una categoria'}</option>
-                {(CATEGORIAS[form.categoria] || []).map(proc => <option key={proc} value={proc}>{proc}</option>)}
-              </select>
-            </div>
+            {form.categoria === PATOLOGIA_PROSTATICA ? (
+              <>
+                <div className="form-group">
+                  <p style={{ fontWeight: 500, fontSize: 14, marginBottom: 6 }}>Procedimiento *</p>
+                  <select value={form.grupo_prostatico} onChange={e => handleGrupoProstaticoChange(e.target.value)} required>
+                    <option value="">Seleccionar procedimiento</option>
+                    <option value={CIRUGIA_HBP}>{CIRUGIA_HBP}</option>
+                    {OTROS_PROCEDIMIENTOS_PROSTATICOS.map(proc => <option key={proc} value={proc}>{proc}</option>)}
+                    {form.grupo_prostatico
+                      && form.grupo_prostatico !== CIRUGIA_HBP
+                      && !OTROS_PROCEDIMIENTOS_PROSTATICOS.includes(form.grupo_prostatico as typeof OTROS_PROCEDIMIENTOS_PROSTATICOS[number])
+                      && <option value={form.grupo_prostatico}>{form.grupo_prostatico} (procedimiento anterior)</option>}
+                  </select>
+                </div>
+
+                {form.grupo_prostatico === CIRUGIA_HBP && (
+                  <div className="form-group">
+                    <p style={{ fontWeight: 500, fontSize: 14, marginBottom: 6 }}>Técnica HBP *</p>
+                    <select value={form.procedimiento} onChange={e => handleProcedimientoChange(e.target.value)} required>
+                      <option value="">Seleccionar técnica</option>
+                      {PROCEDIMIENTOS_HBP.map(proc => <option key={proc} value={proc}>{proc}</option>)}
+                      {form.procedimiento
+                        && !PROCEDIMIENTOS_HBP_SET.has(form.procedimiento)
+                        && <option value={form.procedimiento}>{form.procedimiento} (procedimiento anterior)</option>}
+                    </select>
+                  </div>
+                )}
+
+                {form.procedimiento === 'HoLEP/ThuLEP' && (
+                  <div className="form-group">
+                    <p style={{ fontWeight: 500, fontSize: 14, marginBottom: 6 }}>Tipo de enucleación *</p>
+                    <select value={form.holep_thulep} onChange={e => set('holep_thulep', e.target.value)} required>
+                      <option value="">Seleccionar HoLEP o ThuLEP</option>
+                      <option value="HoLEP">HoLEP</option>
+                      <option value="ThuLEP">ThuLEP</option>
+                    </select>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="form-group">
+                <p style={{ fontWeight: 500, fontSize: 14, marginBottom: 6 }}>Procedimiento *</p>
+                <select value={form.procedimiento} onChange={e => handleProcedimientoChange(e.target.value)} disabled={!form.categoria} required>
+                  <option value="">{form.categoria ? 'Seleccionar procedimiento' : 'Primero elige una categoria'}</option>
+                  {procedimientosDisponibles.map(proc => <option key={proc} value={proc}>{proc}</option>)}
+                </select>
+              </div>
+            )}
+
+            {form.procedimiento === 'Cistectomía radical' && (
+              <div className="form-group">
+                <p style={{ fontWeight: 500, fontSize: 14, marginBottom: 6 }}>Tipo de derivación urinaria *</p>
+                <select value={form.derivacion_urinaria} onChange={e => set('derivacion_urinaria', e.target.value)} required>
+                  <option value="">Seleccionar derivación</option>
+                  {DERIVACIONES_CISTECTOMIA.map(item => <option key={item} value={item}>{item}</option>)}
+                </select>
+                {form.derivacion_urinaria === 'Otra' && (
+                  <input
+                    value={form.derivacion_otra}
+                    onChange={e => set('derivacion_otra', e.target.value)}
+                    placeholder="Especificar otra derivación"
+                    style={{ marginTop: 8 }}
+                    required
+                  />
+                )}
+              </div>
+            )}
+
+            {form.procedimiento === 'Penectomía' && (
+              <div className="form-group">
+                <p style={{ fontWeight: 500, fontSize: 14, marginBottom: 6 }}>Tipo de penectomía *</p>
+                <select value={form.penectomia_tipo} onChange={e => set('penectomia_tipo', e.target.value)} required>
+                  <option value="">Seleccionar tipo</option>
+                  <option value="Parcial">Parcial</option>
+                  <option value="Total">Total</option>
+                </select>
+              </div>
+            )}
 
             {form.procedimiento === 'Orquiectomía' && (
               <div className="card" style={{ marginBottom: 16 }}>
                 <p style={{ fontWeight: 500, fontSize: 14, marginBottom: 10 }}>Detalles de orquiectomía</p>
                 <label className="checkbox-row">
-                  <input type="checkbox" checked={form.orquiectomia_inguinal} onChange={e => setOrquiectomiaInguinal(e.target.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={form.orquiectomia_inguinal}
+                    onChange={e => set('orquiectomia_inguinal', e.target.checked)}
+                  />
                   <span>Inguinal</span>
                 </label>
                 <label className="checkbox-row" style={{ marginBottom: 0 }}>
-                  <input type="checkbox" checked={form.orquiectomia_protesis} onChange={e => setOrquiectomiaProtesis(e.target.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={form.orquiectomia_protesis}
+                    onChange={e => set('orquiectomia_protesis', e.target.checked)}
+                  />
                   <span>Colocación de prótesis</span>
                 </label>
+              </div>
+            )}
+
+            {form.procedimiento === 'Biopsia testicular' && (
+              <div className="form-group">
+                <p style={{ fontWeight: 500, fontSize: 14, marginBottom: 6 }}>Técnica de biopsia *</p>
+                <select value={form.tecnica_especificar} onChange={e => set('tecnica_especificar', e.target.value)} required>
+                  <option value="">Seleccionar técnica</option>
+                  {BIOPSIA_TESTICULAR_TECNICAS.map(tecnica => (
+                    <option key={tecnica} value={tecnica}>{tecnica}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {PROCEDIMIENTOS_CON_TECNICA.has(form.procedimiento) && (
+              <div className="form-group">
+                <p style={{ fontWeight: 500, fontSize: 14, marginBottom: 6 }}>
+                  {[
+                    'Cirugía de Peyronie', 'Peyronie',
+                    'Cirugía de Peyronie + Prótesis', 'Peyronie + Prótesis',
+                  ].includes(form.procedimiento)
+                    ? 'Técnica de Peyronie'
+                    : 'Técnica'}
+                </p>
+                <input
+                  value={form.tecnica_especificar}
+                  onChange={e => set('tecnica_especificar', e.target.value)}
+                  placeholder="Opcional. Especifica la técnica utilizada"
+                />
+              </div>
+            )}
+
+            {PROCEDIMIENTOS_CON_TIPO_PROTESIS.has(form.procedimiento) && (
+              <div className="form-group">
+                <p style={{ fontWeight: 500, fontSize: 14, marginBottom: 6 }}>Tipo de prótesis</p>
+                <input
+                  value={form.tipo_protesis}
+                  onChange={e => set('tipo_protesis', e.target.value)}
+                  placeholder="Opcional. Por ejemplo: hidráulica o maleable"
+                />
               </div>
             )}
 
@@ -806,7 +1089,12 @@ export default function Nuevo() {
             <div className="two-cols">
               <div className="form-group">
                 <p style={{ fontWeight: 500, fontSize: 14, marginBottom: 6 }}>Abordaje *</p>
-                <select value={form.abordaje} onChange={e => set('abordaje', e.target.value)} disabled={abordajeBloqueado} required>
+                <select
+                  value={form.abordaje}
+                  onChange={e => set('abordaje', e.target.value)}
+                  disabled={!form.procedimiento || abordajePendienteDetalle || abordajeBloqueado}
+                  required
+                >
                   <option value="">Seleccionar abordaje</option>
                   {abordajesDisponibles.map(a => <option key={a} value={a}>{a}</option>)}
                 </select>

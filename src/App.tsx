@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Route, Routes, Navigate, Link } from 'react-router-dom';
-import { isDatabaseOpenFor, isWebDatabase, lockDatabase } from './db/database';
+import { assertDatabaseOwner, getDatabaseOwner, isDatabaseOpenFor, isWebDatabase, lockDatabase, mergeDatabaseContents } from './db/database';
 import LocalDataGate from './components/LocalDataGate';
 import { getCurrentUser, onAuthChange } from './auth/authService';
-import { isDatabaseEmpty } from './db/procedureRepository';
+import { getAllProcedures, isDatabaseEmpty } from './db/procedureRepository';
 import { isGoogleSignedIn } from './google/googleAuthService';
 import { hasBackupAvailable, checkAndAutoBackup } from './backup/backupService';
 import { APP_CONFIG } from './config/appConfig';
+import { getAutomaticCatalogMigrationUpdates } from './lib/migrationReview';
 import type { AuthUser } from './lib/types';
 
 import Layout from './components/Layout';
@@ -28,6 +29,9 @@ export default function App() {
   const userId = useRef<string | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [dbReady, setDbReady] = useState(false);
+  const [catalogReady, setCatalogReady] = useState(false);
+  const [catalogError, setCatalogError] = useState('');
+  const [catalogRetry, setCatalogRetry] = useState(0);
   const [restoreOffer, setRestoreOffer] = useState<RestoreOffer>(null);
   const [passwordSetupMode, setPasswordSetupMode] = useState(() => hasPasswordSetupLink());
   const [privacyAccepted, setPrivacyAccepted] = useState(() => (
@@ -45,6 +49,8 @@ export default function App() {
     if (userId.current !== next?.id) {
       lockDatabase();
       setDbReady(false);
+      setCatalogReady(false);
+      setCatalogError('');
       setRestoreOffer(null);
     }
     userId.current = next?.id ?? null;
@@ -72,6 +78,28 @@ export default function App() {
     if (!user || !dbReady) return;
 
     let active = true;
+    const owner = getDatabaseOwner();
+    setCatalogReady(false);
+    setCatalogError('');
+    (async () => {
+      const procedures = await getAllProcedures();
+      assertDatabaseOwner(owner);
+      const updates = getAutomaticCatalogMigrationUpdates(procedures);
+      if (updates.length > 0) {
+        await mergeDatabaseContents(updates, [], []);
+        assertDatabaseOwner(owner);
+      }
+      if (active) setCatalogReady(true);
+    })().catch(error => {
+      if (active) setCatalogError(error instanceof Error ? error.message : 'No se pudo actualizar el catálogo local.');
+    });
+    return () => { active = false; };
+  }, [user, dbReady, catalogRetry]);
+
+  useEffect(() => {
+    if (!user || !dbReady || !catalogReady) return;
+
+    let active = true;
     (async () => {
       const empty = await isDatabaseEmpty();
       if (empty) {
@@ -88,7 +116,7 @@ export default function App() {
       }
     })().catch(err => console.warn('[App] Backup check:', err));
     return () => { active = false; };
-  }, [user, dbReady]);
+  }, [user, dbReady, catalogReady]);
 
   if (!authReady) {
     return (
@@ -146,9 +174,23 @@ export default function App() {
     return <LocalDataGate key={user.id} user={user} onOpen={() => setDbReady(true)} onLogout={() => setUser(null)} />;
   }
 
+  if (catalogError) {
+    return (
+      <div style={{ maxWidth: 520, margin: '64px auto', padding: 24, textAlign: 'center' }}>
+        <h2 style={{ marginBottom: 12 }}>No se pudo revisar el catálogo local</h2>
+        <p style={{ color: 'var(--text2)', marginBottom: 18 }}>{catalogError}</p>
+        <button className="btn-primary" onClick={() => setCatalogRetry(value => value + 1)}>Reintentar</button>
+      </div>
+    );
+  }
+
+  if (!catalogReady) {
+    return <div style={{ textAlign: 'center', padding: 40, color: 'var(--text2)' }}>Actualizando el catálogo local...</div>;
+  }
+
   return (
     <BrowserRouter>
-      <Layout key={user.id} user={user} onLogout={() => setUser(null)} onLock={isWebDatabase() ? () => { lockDatabase(); setDbReady(false); setRestoreOffer(null); } : undefined}>
+      <Layout key={user.id} user={user} onLogout={() => setUser(null)} onLock={isWebDatabase() ? () => { lockDatabase(); setDbReady(false); setCatalogReady(false); setCatalogError(''); setRestoreOffer(null); } : undefined}>
         {restoreOffer && (
           <div className="restore-banner" style={{ background: 'var(--primary)', color: 'white', padding: 12, borderRadius: 8, marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>

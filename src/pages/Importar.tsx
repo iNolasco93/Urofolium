@@ -4,7 +4,7 @@ import { getAllProcedures } from '../db/procedureRepository';
 import { getAllStoneDetails } from '../db/stoneRepository';
 import { assertDatabaseOwner, getDatabaseOwner, mergeDatabaseContents } from '../db/database';
 import { REQUIRED_IMPORT_COLUMNS, getProcedureWorkbookColumns, materializeProcedureImport, readProcedureWorkbook, type ProcedureImportRow } from '../lib/procedureWorkbook';
-import { ABORDAJES_SELECCIONABLES, CATEGORIAS, REGLAS_ABORDAJE, ROLES, SELECTABLE } from '../lib/categorias';
+import { CATEGORIAS, ROLES, PROCEDIMIENTOS_ORQUIECTOMIA, getAbordajesDisponibles } from '../lib/categorias';
 import type { Procedure } from '../lib/types';
 
 type RowPreview = ProcedureImportRow;
@@ -53,16 +53,14 @@ function createTemplateRow(values: Record<string, string>): Record<string, strin
 }
 
 function getTemplateApproaches(categoria: string, procedimiento: string): string {
-  const rule = REGLAS_ABORDAJE[categoria]?.[procedimiento];
-  if (!rule || rule === SELECTABLE) return ABORDAJES_SELECCIONABLES.join(', ');
-  return rule;
+  return getAbordajesDisponibles(categoria, procedimiento).join(', ');
 }
 
 function buildTemplateRows(): Record<string, string>[] {
   return [
     createTemplateRow({
       fecha: '2026-07-01',
-      categoria: 'Endourología',
+      categoria: 'Patología vesical',
       procedimiento: 'RTU vesical',
       abordaje: 'Endoscópico',
       duracion: '60',
@@ -73,7 +71,7 @@ function buildTemplateRows(): Record<string, string>[] {
     }),
     createTemplateRow({
       fecha: '2026-07-02',
-      categoria: 'Genital masculina',
+      categoria: 'Patología testicular y escrotal',
       procedimiento: 'Vasectomía',
       abordaje: 'Abierto',
       duracion: '45',
@@ -96,10 +94,13 @@ function buildInstructions(): string[][] {
     ['6. También se aceptan las plantillas antiguas. Los campos opcionales que no aparecen como columnas se conservan al actualizar un id existente; una celda vacía borra ese campo.'],
     ['7. Fecha aceptada: YYYY-MM-DD o DD/MM/YYYY.'],
     ['8. Revisa la vista previa antes de confirmar la importación.'],
-    ['9. La hoja Valores validos contiene categorías, procedimientos, abordajes y roles disponibles.'],
-    ['10. Conserva id para actualizar el mismo registro. Sin id se creará uno nuevo; reimportar una plantilla sin id vuelve a crear registros.'],
-    ['11. Las columnas stone_ guardan los detalles de litiasis. stone_detalles=Sí incluye los detalles; No los elimina. Si dejas todo el bloque vacío, los detalles existentes se conservan.'],
-    ['12. Las fechas de creación y modificación (created_at y updated_at) son opcionales. Conserva las exportadas para mantener las fechas originales.'],
+    ['9. procedimiento contiene el nombre final legible. Para una reimportación exacta, conserva procedimiento_base, tipo_derivacion_urinaria, tecnica y tipo_protesis.'],
+    ['10. Cistectomía radical requiere tipo_derivacion_urinaria. En Biopsia testicular usa TESE o MicroTESE con abordaje Abierto, y TESA con abordaje Percutáneo.'],
+    ['11. La hoja Valores validos contiene categorías, procedimientos, abordajes, técnicas y tipos de prótesis o derivación disponibles.'],
+    ['12. En Otros, escribe Otros: [descripción] en procedimiento y conserva también la descripción en otro_especificar.'],
+    ['13. Conserva id para actualizar el mismo registro. Sin id se creará uno nuevo; reimportar una plantilla sin id vuelve a crear registros.'],
+    ['14. Las columnas stone_ guardan los detalles de litiasis. stone_detalles=Sí incluye los detalles; No los elimina. Si dejas todo el bloque vacío, los detalles existentes se conservan.'],
+    ['15. Las fechas de creación y modificación (created_at y updated_at) son opcionales. Conserva las exportadas para mantener las fechas originales.'],
     [],
     ['Valores permitidos para rol'],
     ...ROLES.map(rol => [rol]),
@@ -114,11 +115,54 @@ function buildInstructions(): string[][] {
 function buildValidValuesRows(): string[][] {
   const rows: string[][] = [
     ['Categorías, procedimientos y abordajes'],
-    ['categoria', 'procedimiento', 'abordajes_validos'],
+    ['categoria', 'procedimiento_base', 'abordajes_validos', 'tipo_derivacion_urinaria', 'tecnica', 'tipo_protesis'],
   ];
 
   Object.entries(CATEGORIAS).forEach(([categoria, procedimientos]) => {
     procedimientos.forEach(procedimiento => {
+      if (procedimiento === 'Orquiectomía') {
+        PROCEDIMIENTOS_ORQUIECTOMIA.forEach(variante => {
+          rows.push([categoria, variante, getTemplateApproaches(categoria, variante)]);
+        });
+        return;
+      }
+      if (procedimiento === 'HoLEP/ThuLEP') {
+        for (const variante of ['HoLEP', 'ThuLEP']) {
+          rows.push([categoria, variante, getTemplateApproaches(categoria, variante)]);
+        }
+        return;
+      }
+      if (procedimiento === 'Cistectomía radical') {
+        for (const derivacion of [
+          'Bricker', 'Neovejiga ortotópica', 'Ureterostomía cutánea', 'Nefrostomía',
+          'Colostomía húmeda', 'Mainz II', 'Otra descripción libre',
+        ]) {
+          rows.push([categoria, procedimiento, getTemplateApproaches(categoria, procedimiento), derivacion]);
+        }
+        return;
+      }
+      if (procedimiento === 'Biopsia testicular') {
+        rows.push([categoria, procedimiento, 'Abierto', '', 'TESE']);
+        rows.push([categoria, procedimiento, 'Abierto', '', 'MicroTESE']);
+        rows.push([categoria, procedimiento, 'Percutáneo', '', 'TESA']);
+        return;
+      }
+      if (procedimiento === 'Cirugía de Peyronie') {
+        rows.push([categoria, procedimiento, getTemplateApproaches(categoria, procedimiento), '', 'Texto libre opcional']);
+        return;
+      }
+      if (procedimiento === 'Cirugía de Peyronie + Prótesis') {
+        rows.push([categoria, procedimiento, getTemplateApproaches(categoria, procedimiento), '', 'Texto libre opcional', 'Texto libre opcional']);
+        return;
+      }
+      if (procedimiento === 'Prótesis de pene') {
+        rows.push([categoria, procedimiento, getTemplateApproaches(categoria, procedimiento), '', '', 'Texto libre opcional']);
+        return;
+      }
+      if (procedimiento === 'Fístula vesico-vaginal') {
+        rows.push([categoria, procedimiento, getTemplateApproaches(categoria, procedimiento), '', 'Texto libre opcional']);
+        return;
+      }
       rows.push([categoria, procedimiento, getTemplateApproaches(categoria, procedimiento)]);
     });
   });
@@ -146,7 +190,9 @@ function downloadTemplate(): void {
   helpSheet['!cols'] = [{ wch: 112 }];
 
   const valuesSheet = XLSX.utils.aoa_to_sheet(buildValidValuesRows());
-  valuesSheet['!cols'] = [{ wch: 34 }, { wch: 48 }, { wch: 44 }];
+  valuesSheet['!cols'] = [
+    { wch: 34 }, { wch: 48 }, { wch: 44 }, { wch: 32 }, { wch: 28 }, { wch: 28 },
+  ];
 
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, templateSheet, 'Plantilla');

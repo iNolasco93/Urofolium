@@ -43,9 +43,13 @@ function importWorkbook(book, existing = [], existingStone = []) {
 }
 
 test('workbook columns contain only the UroFolium data model', () => {
-  assert.deepEqual(getProcedureWorkbookColumns().slice(0, 8), [
-    'id', 'fecha', 'categoria', 'procedimiento', 'abordaje', 'duracion', 'rol', 'cirujano_senior',
+  assert.deepEqual(getProcedureWorkbookColumns().slice(0, 11), [
+    'id', 'fecha', 'categoria', 'procedimiento', 'procedimiento_base',
+    'tipo_derivacion_urinaria', 'tecnica', 'tipo_protesis', 'abordaje', 'duracion', 'rol',
   ]);
+  assert.equal(getProcedureWorkbookColumns().includes('referencia'), false);
+  assert.equal(getProcedureWorkbookColumns().includes('notas'), false);
+  assert.equal(getProcedureWorkbookColumns().includes('seguimiento'), false);
 });
 
 test('XLSX export and import preserve procedure and litiasis fields', () => {
@@ -54,6 +58,61 @@ test('XLSX export and import preserve procedure and litiasis fields', () => {
   assert.deepEqual(result.procedures, procedures);
   assert.deepEqual(result.stoneDetails, [stone]);
   assert.deepEqual(result.removeStoneIds, ['case-2']);
+});
+
+test('the migration review sheet is included only when records need review', () => {
+  const current = createProcedureWorkbook([procedure], [stone]);
+  assert.deepEqual(current.SheetNames, ['UroFolium']);
+
+  const legacy = {
+    ...procedure,
+    id: 'legacy-case',
+    categoria: 'Cirugía pélvica y prostática mayor',
+    procedimiento: 'Cistectomía radical',
+    abordaje: 'Abierto',
+  };
+  const withPending = createProcedureWorkbook([legacy], []);
+  assert.deepEqual(withPending.SheetNames, ['UroFolium', 'Pendientes de revisión']);
+  const rows = XLSX.utils.sheet_to_json(withPending.Sheets['Pendientes de revisión']);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].categoria_sugerida, 'Patología vesical');
+});
+
+test('export writes final procedure names and structured columns, then reimports them', () => {
+  const cases = [
+    { ...procedure, id: 'cystectomy', categoria: 'Patología vesical', procedimiento: 'Cistectomía radical', abordaje: 'Robótico', otro_especificar: 'Bricker' },
+    { ...procedure, id: 'peyronie', categoria: 'Patología peneana', procedimiento: 'Cirugía de Peyronie', abordaje: 'Abierto', otro_especificar: 'Yachia' },
+    { ...procedure, id: 'peyronie-prosthesis', categoria: 'Patología peneana', procedimiento: 'Cirugía de Peyronie + Prótesis', abordaje: 'Abierto', otro_especificar: 'urofolium-detail-v1:{"tecnica":"Yachia","tipoProtesis":"hidráulica"}' },
+    { ...procedure, id: 'penile-prosthesis', categoria: 'Patología peneana', procedimiento: 'Prótesis de pene', abordaje: 'Abierto', otro_especificar: 'maleable' },
+    { ...procedure, id: 'biopsy', categoria: 'Patología testicular y escrotal', procedimiento: 'Biopsia testicular', abordaje: 'Percutáneo', otro_especificar: 'TESA' },
+    { ...procedure, id: 'fistula', categoria: 'Patología uroginecológica', procedimiento: 'Fístula vesico-vaginal', abordaje: 'Vaginal', otro_especificar: 'Latzko' },
+    { ...procedure, id: 'penectomy', categoria: 'Patología peneana', procedimiento: 'Penectomía total', abordaje: 'Abierto', otro_especificar: null },
+    { ...procedure, id: 'other', categoria: 'Patología renal', procedimiento: 'Otros: Autotrasplante renal', abordaje: 'Abierto', otro_especificar: 'Autotrasplante renal' },
+  ];
+  const book = createProcedureWorkbook(cases, []);
+  const rows = XLSX.utils.sheet_to_json(book.Sheets.UroFolium, { defval: null });
+  const byId = new Map(rows.map(row => [row.id, row]));
+
+  assert.equal(byId.get('cystectomy').procedimiento, 'Cistectomía radical + Bricker');
+  assert.equal(byId.get('cystectomy').procedimiento_base, 'Cistectomía radical');
+  assert.equal(byId.get('peyronie').procedimiento, 'Cirugía de Peyronie + Yachia');
+  assert.equal(byId.get('peyronie-prosthesis').procedimiento, 'Cirugía de Peyronie tipo Yachia + Prótesis hidráulica');
+  assert.equal(byId.get('penile-prosthesis').procedimiento, 'Prótesis de pene maleable');
+  assert.equal(byId.get('biopsy').procedimiento, 'Biopsia testicular TESA');
+  assert.equal(byId.get('fistula').procedimiento, 'Fístula vesico-vaginal + Latzko');
+  assert.equal(byId.get('penectomy').procedimiento, 'Penectomía total');
+  assert.equal(byId.get('other').procedimiento, 'Otros: Autotrasplante renal');
+
+  assert.deepEqual(importWorkbook(book).procedures, cases);
+});
+
+test('radical cystectomy import requires a urinary diversion', () => {
+  const headers = ['fecha', 'categoria', 'procedimiento', 'abordaje', 'rol', 'otro_especificar'];
+  const base = ['2026-07-01', 'Patología vesical', 'Cistectomía radical', 'Abierto', 'Observador'];
+  const missing = parseProcedureWorkbook(workbook(headers, [[...base, null]]));
+  assert.ok(missing.errors.some(error => error.includes('tipo_derivacion_urinaria')));
+  const legacy = importWorkbook(workbook(headers, [[...base, 'Bricker']]));
+  assert.equal(legacy.procedures[0].otro_especificar, 'Bricker');
 });
 
 test('partial updates preserve omitted optional fields and existing litiasis details', () => {

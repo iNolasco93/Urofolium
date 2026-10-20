@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 
 const directory = await mkdtemp(join(tmpdir(), 'urofolium-tests-'));
 try {
-  const bundled = ['backupValidation', 'encryptedVault'];
+  const bundled = ['backupValidation', 'catalog', 'encryptedVault', 'migrationReview'];
   for (const name of bundled) {
     await build({ entryPoints: [`tests/${name}.test.ts`], bundle: true, platform: 'node', format: 'cjs', outfile: join(directory, `${name}.test.cjs`), logLevel: 'silent' });
   }
