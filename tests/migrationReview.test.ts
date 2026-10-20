@@ -49,7 +49,7 @@ test('the four approved aliases, current categories and unequivocal approaches m
     { categoria: 'Patología uroginecológica', procedimiento: 'Botox intravesical', abordaje: 'Endoscópico' },
     { categoria: 'Patología uroginecológica', procedimiento: 'Reparación cistocele', abordaje: 'Vaginal' },
     { categoria: 'Patología uretral', procedimiento: 'Implante de esfínter artificial', abordaje: 'Abierto' },
-    { categoria: 'Patología prostática', procedimiento: 'Adenomectomía', abordaje: 'Robótico' },
+    { categoria: 'Patología prostática', procedimiento: 'Adenomectomía', abordaje: 'Abierto' },
     { categoria: 'Patología uroginecológica', procedimiento: 'TOT', abordaje: 'Vaginal' },
     { categoria: 'Patología peneana', procedimiento: 'Cirugía de Peyronie', abordaje: 'Abierto' },
     { categoria: 'Patología peneana', procedimiento: 'Cirugía de Peyronie + Prótesis', abordaje: 'Abierto' },

@@ -96,7 +96,10 @@ export function migrateProcedureCatalog(procedure: Procedure, now = new Date().t
 
   const fixedApproach = getAbordajeFijo(categoria, procedimiento);
   const legacyApproach = procedure.abordaje === 'Transvaginal' ? 'Vaginal' : procedure.abordaje;
-  const abordaje = fixedApproach ?? legacyApproach;
+  const legacyForcedApproach = procedure.procedimiento === 'Adenomectomía suprapúbica'
+    ? 'Abierto'
+    : null;
+  const abordaje = legacyForcedApproach ?? fixedApproach ?? legacyApproach;
   if (
     categoria === procedure.categoria
     && procedimiento === procedure.procedimiento
