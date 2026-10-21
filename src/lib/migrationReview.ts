@@ -1,6 +1,6 @@
 import type { Procedure } from './types';
 import { decodeProcedureDetails } from './procedureDetails';
-import { getAbordajeFijo } from './categorias';
+import { CATEGORIAS, getAbordajeFijo } from './categorias';
 
 export interface MigrationReviewCase {
   id: string;
@@ -78,8 +78,43 @@ const LEGACY_CATEGORY_BY_PROCEDURE: Record<string, string> = {
   'Implante de esfínter artificial': 'Patología uretral',
 };
 
+function normalizeCatalogKey(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+const PROCEDURE_ALIASES_BY_KEY = new Map(
+  Object.entries(PROCEDURE_ALIASES).map(([source, target]) => [normalizeCatalogKey(source), target]),
+);
+const KNOWN_PROCEDURES_BY_KEY = new Map(
+  [...Object.values(CATEGORIAS).flat(), ...Object.keys(LEGACY_CATEGORY_BY_PROCEDURE)]
+    .map(procedure => [normalizeCatalogKey(procedure), procedure]),
+);
+const CURRENT_CATEGORIES_BY_KEY = new Map(
+  Object.keys(CATEGORIAS).map(category => [normalizeCatalogKey(category), category]),
+);
+const LEGACY_CATEGORY_KEYS = new Set([...LEGACY_CATEGORIES].map(normalizeCatalogKey));
+const APPROACHES_BY_KEY = new Map([
+  'Abierto', 'Endoscópico', 'Percutáneo', 'Laparoscópico', 'Robótico',
+  'Retroperitoneal', 'Microcirugía', 'Vaginal', 'Transvaginal',
+].map(approach => [normalizeCatalogKey(approach), approach]));
+
 function canonicalProcedure(procedure: string): string {
-  return PROCEDURE_ALIASES[procedure] ?? procedure;
+  return PROCEDURE_ALIASES[procedure]
+    ?? PROCEDURE_ALIASES_BY_KEY.get(normalizeCatalogKey(procedure))
+    ?? KNOWN_PROCEDURES_BY_KEY.get(normalizeCatalogKey(procedure))
+    ?? procedure;
+}
+
+function canonicalCategory(category: string): string {
+  return CURRENT_CATEGORIES_BY_KEY.get(normalizeCatalogKey(category)) ?? category;
+}
+
+function isLegacyCategory(category: string): boolean {
+  return LEGACY_CATEGORY_KEYS.has(normalizeCatalogKey(category));
+}
+
+function canonicalApproach(approach: string): string {
+  return APPROACHES_BY_KEY.get(normalizeCatalogKey(approach)) ?? approach;
 }
 
 function isOtherProcedure(procedure: string): boolean {
@@ -88,15 +123,16 @@ function isOtherProcedure(procedure: string): boolean {
 
 export function migrateProcedureCatalog(procedure: Procedure, now = new Date().toISOString()): Procedure {
   const procedimiento = canonicalProcedure(procedure.procedimiento);
-  let categoria = procedure.categoria;
+  let categoria = canonicalCategory(procedure.categoria);
 
-  if (LEGACY_CATEGORIES.has(categoria) && !isOtherProcedure(procedimiento)) {
+  if (isLegacyCategory(categoria) && !isOtherProcedure(procedimiento)) {
     categoria = LEGACY_CATEGORY_BY_PROCEDURE[procedimiento] ?? categoria;
   }
 
   const fixedApproach = getAbordajeFijo(categoria, procedimiento);
-  const legacyApproach = procedure.abordaje === 'Transvaginal' ? 'Vaginal' : procedure.abordaje;
-  const legacyForcedApproach = procedure.procedimiento === 'Adenomectomía suprapúbica'
+  const canonicalLegacyApproach = canonicalApproach(procedure.abordaje);
+  const legacyApproach = canonicalLegacyApproach === 'Transvaginal' ? 'Vaginal' : canonicalLegacyApproach;
+  const legacyForcedApproach = normalizeCatalogKey(procedure.procedimiento) === normalizeCatalogKey('Adenomectomía suprapúbica')
     ? 'Abierto'
     : null;
   const abordaje = legacyForcedApproach ?? fixedApproach ?? legacyApproach;
@@ -129,7 +165,7 @@ export function getMigrationReviewCases(procedures: Procedure[]): MigrationRevie
     let abordajeSugerido = migrated.abordaje;
     const acciones: string[] = [];
 
-    if (LEGACY_CATEGORIES.has(migrated.categoria)) {
+    if (isLegacyCategory(migrated.categoria)) {
       problemas.push(isOtherProcedure(migrated.procedimiento)
         ? 'La categoría anterior se dividió y “Otros” no se puede clasificar automáticamente.'
         : 'La categoría anterior no tiene una correspondencia automática.');

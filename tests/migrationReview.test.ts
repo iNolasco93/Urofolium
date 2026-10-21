@@ -66,6 +66,19 @@ test('legacy transvaginal approaches migrate to vaginal', () => {
   assert.equal(migrated.abordaje, 'Vaginal');
 });
 
+test('catalog migration recognizes categories, procedures and approaches without accents', () => {
+  const migrated = migrateProcedureCatalog({
+    ...BASE,
+    categoria: 'Cirugia pelvica y prostatica mayor',
+    procedimiento: 'Adenomectomia suprapubica',
+    abordaje: 'Robotico',
+  });
+  assert.equal(migrated.categoria, 'Patología prostática');
+  assert.equal(migrated.procedimiento, 'Adenomectomía');
+  assert.equal(migrated.abordaje, 'Abierto');
+  assert.deepEqual(getMigrationReviewCases([migrated]), []);
+});
+
 test('ambiguous Others and missing cystectomy diversion require manual correction', () => {
   const reviews = getMigrationReviewCases([
     { ...BASE, id: 'other', categoria: 'Genital masculina', procedimiento: 'Otros: Reconstrucción', abordaje: 'Abierto', otro_especificar: 'Reconstrucción' },
