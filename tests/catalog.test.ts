@@ -32,6 +32,11 @@ test('approach rules expose only the choices requested for each procedure', () =
   assert.equal(getAbordajeFijo('Patología prostática', 'RTU prostática'), 'Endoscópico');
   assert.equal(getAbordajeFijo('Patología ureteral', 'Incisión endoscópica de ureterocele'), 'Endoscópico');
   assert.equal(getAbordajeFijo('Patología ureteral', 'Inyección endoscópica por RVU'), 'Endoscópico');
+  assert.equal(getAbordajeFijo('Patología ureteral', 'Dilatación neumática de uréter'), 'Endoscópico');
+  assert.equal(
+    CATEGORIAS['Patología ureteral'].indexOf('Dilatación neumática de uréter'),
+    CATEGORIAS['Patología ureteral'].indexOf('Reimplante ureteral') + 1,
+  );
   assert.deepEqual(getAbordajesDisponibles('Patología renal', 'Nefrectomía radical'), [
     'Abierto', 'Laparoscópico', 'Robótico', 'Retroperitoneal',
   ]);

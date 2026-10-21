@@ -42,7 +42,7 @@ export const CATEGORIAS: Record<string, string[]> = {
   ],
   'Patología ureteral': [
     'Pieloplastia', 'Pielo/ureterolitotomía', 'Reimplante ureteral',
-    'URS', 'RIRS', 'Incisión endoscópica de ureterocele',
+    'Dilatación neumática de uréter', 'URS', 'RIRS', 'Incisión endoscópica de ureterocele',
     'Inyección endoscópica por RVU', 'Otros',
   ],
   'Patología uretral': [
@@ -145,6 +145,7 @@ export const REGLAS_ABORDAJE: Record<string, Record<string, ApproachRule>> = {
     'Pieloplastia': OPEN_LAP_ROBOT_RETRO,
     'Pielo/ureterolitotomía': OPEN_LAP_ROBOT,
     'Reimplante ureteral': OPEN_LAP_ROBOT,
+    'Dilatación neumática de uréter': 'Endoscópico',
     'URS': 'Endoscópico', 'RIRS': 'Endoscópico',
     'Incisión endoscópica de ureterocele': 'Endoscópico',
     'Inyección endoscópica por RVU': 'Endoscópico',
