@@ -123,6 +123,18 @@ test('structured procedure details produce the requested final export names', ()
     getProcedureWorkbookFields('Biopsia testicular', 'TESA').procedimientoFinal,
     'Biopsia testicular TESA',
   );
+  assert.equal(
+    getProcedureWorkbookFields('Trauma vesical', 'Cistorrafia + reimplante ureteral izq').procedimientoFinal,
+    'Trauma vesical: Cistorrafia + reimplante ureteral izq',
+  );
+  assert.equal(
+    getProcedureWorkbookFields('Trauma renal', 'Nefrorrafia').procedimientoFinal,
+    'Trauma renal: Nefrorrafia',
+  );
+  assert.equal(
+    getProcedureWorkbookFields('Trauma ureteral', 'Anastomosis T-T').procedimientoFinal,
+    'Trauma ureteral: Anastomosis T-T',
+  );
   assert.equal(getProcedureWorkbookFields('Cirugía de Peyronie', null).procedimientoFinal, 'Cirugía de Peyronie');
   assert.equal(getProcedureWorkbookFields('Fístula vesico-vaginal', null).procedimientoFinal, 'Fístula vesico-vaginal');
 });
@@ -142,4 +154,14 @@ test('final procedure names can be imported without splitting meaningful plus si
       tipoProtesis: 'hidráulica',
     },
   );
+});
+
+test('trauma final names can be imported with their free-text description', () => {
+  const parsed = parseProcedureWorkbookFields(
+    'Trauma ureteral: Reimplante ureteral derecho', '', '', '', '',
+  );
+  assert.deepEqual(parsed, {
+    procedimiento: 'Trauma ureteral',
+    storedDetail: 'Reimplante ureteral derecho',
+  });
 });

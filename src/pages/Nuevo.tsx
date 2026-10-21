@@ -34,6 +34,7 @@ const PROCEDIMIENTOS_CON_TECNICA = new Set([
 const PROCEDIMIENTOS_CON_TIPO_PROTESIS = new Set([
   'Prótesis de pene', 'Cirugía de Peyronie + Prótesis', 'Peyronie + Prótesis',
 ]);
+const PROCEDIMIENTOS_TRAUMA = new Set(['Trauma vesical', 'Trauma renal', 'Trauma ureteral']);
 const DUPLICATE_DURATION_TOLERANCE_MINUTES = 15;
 
 const STONE_EMPTY = {
@@ -303,6 +304,7 @@ function buildStoredProcedure(form: FormState): string {
 function buildStoredDetail(form: FormState): string | null {
   if (form.categoria === LITIASIS) return null;
   if (form.procedimiento === 'Otros') return form.otro_especificar.trim() || null;
+  if (PROCEDIMIENTOS_TRAUMA.has(form.procedimiento)) return form.otro_especificar.trim() || null;
   return encodeProcedureDetails(form.procedimiento, {
     tipoDerivacionUrinaria: form.derivacion_urinaria === 'Otra'
       ? form.derivacion_otra
@@ -375,7 +377,9 @@ export default function Nuevo() {
         segundo_ayudante: data.segundo_ayudante || '',
         complicaciones: tieneComplicaciones,
         complicaciones_detalle: tieneComplicaciones && data.complicaciones !== 'Si' ? data.complicaciones || '' : '',
-        otro_especificar: esOtro ? data.procedimiento.replace('Otros: ', '') : '',
+        otro_especificar: esOtro
+          ? data.procedimiento.replace('Otros: ', '')
+          : PROCEDIMIENTOS_TRAUMA.has(parsedProcedure.procedimiento) ? data.otro_especificar || '' : '',
         penectomia_tipo: parsedProcedure.penectomia_tipo,
         holep_thulep: parsedProcedure.holep_thulep,
         orquiectomia_inguinal: parsedProcedure.orquiectomia_inguinal,
@@ -469,7 +473,10 @@ export default function Nuevo() {
     ...f,
     procedimiento,
     abordaje: procedimiento === f.procedimiento ? f.abordaje : '',
-    otro_especificar: procedimiento === 'Otros' ? f.otro_especificar : '',
+    otro_especificar: procedimiento === f.procedimiento
+      && (procedimiento === 'Otros' || PROCEDIMIENTOS_TRAUMA.has(procedimiento))
+      ? f.otro_especificar
+      : '',
     derivacion_urinaria: procedimiento === 'Cistectomía radical' ? f.derivacion_urinaria : '',
     derivacion_otra: procedimiento === 'Cistectomía radical' ? f.derivacion_otra : '',
     tecnica_especificar: PROCEDIMIENTOS_CON_TECNICA.has(procedimiento) ? f.tecnica_especificar : '',
@@ -1083,6 +1090,21 @@ export default function Nuevo() {
               <div className="form-group">
                 <p style={{ fontWeight: 500, fontSize: 14, marginBottom: 6 }}>Especificar *</p>
                 <input value={form.otro_especificar} onChange={e => set('otro_especificar', e.target.value)} required />
+              </div>
+            )}
+
+            {PROCEDIMIENTOS_TRAUMA.has(form.procedimiento) && (
+              <div className="form-group">
+                <p style={{ fontWeight: 500, fontSize: 14, marginBottom: 6 }}>Procedimiento realizado</p>
+                <textarea
+                  value={form.otro_especificar}
+                  onChange={e => set('otro_especificar', e.target.value)}
+                  placeholder={form.procedimiento === 'Trauma vesical'
+                    ? 'Por ejemplo: Cistorrafia + reimplante ureteral izq'
+                    : form.procedimiento === 'Trauma ureteral'
+                      ? 'Por ejemplo: Reimplante ureteral derecho o anastomosis T-T'
+                      : 'Describe la reparación realizada'}
+                />
               </div>
             )}
 

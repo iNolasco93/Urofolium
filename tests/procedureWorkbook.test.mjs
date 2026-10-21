@@ -88,6 +88,9 @@ test('export writes final procedure names and structured columns, then reimports
     { ...procedure, id: 'fistula', categoria: 'Patología uroginecológica', procedimiento: 'Fístula vesico-vaginal', abordaje: 'Vaginal', otro_especificar: 'Latzko' },
     { ...procedure, id: 'penectomy', categoria: 'Patología peneana', procedimiento: 'Penectomía total', abordaje: 'Abierto', otro_especificar: null },
     { ...procedure, id: 'other', categoria: 'Patología renal', procedimiento: 'Otros: Autotrasplante renal', abordaje: 'Abierto', otro_especificar: 'Autotrasplante renal' },
+    { ...procedure, id: 'bladder-trauma', categoria: 'Cirugía de urgencia', procedimiento: 'Trauma vesical', abordaje: 'Abierto', otro_especificar: 'Cistorrafia + reimplante ureteral izq' },
+    { ...procedure, id: 'renal-trauma', categoria: 'Cirugía de urgencia', procedimiento: 'Trauma renal', abordaje: 'Abierto', otro_especificar: 'Nefrorrafia' },
+    { ...procedure, id: 'ureteral-trauma', categoria: 'Cirugía de urgencia', procedimiento: 'Trauma ureteral', abordaje: 'Abierto', otro_especificar: 'Anastomosis T-T' },
   ];
   const book = createProcedureWorkbook(cases, []);
   const rows = XLSX.utils.sheet_to_json(book.Sheets.UroFolium, { defval: null });
@@ -102,6 +105,9 @@ test('export writes final procedure names and structured columns, then reimports
   assert.equal(byId.get('fistula').procedimiento, 'Fístula vesico-vaginal + Latzko');
   assert.equal(byId.get('penectomy').procedimiento, 'Penectomía total');
   assert.equal(byId.get('other').procedimiento, 'Otros: Autotrasplante renal');
+  assert.equal(byId.get('bladder-trauma').procedimiento, 'Trauma vesical: Cistorrafia + reimplante ureteral izq');
+  assert.equal(byId.get('renal-trauma').procedimiento, 'Trauma renal: Nefrorrafia');
+  assert.equal(byId.get('ureteral-trauma').procedimiento, 'Trauma ureteral: Anastomosis T-T');
 
   assert.deepEqual(importWorkbook(book).procedures, cases);
 });

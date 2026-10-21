@@ -23,6 +23,7 @@ const STRUCTURED_PROCEDURES = new Set([
   LEGACY_PEYRONIE_WITH_PROSTHESIS, PEYRONIE_WITH_PROSTHESIS,
   'Prótesis de pene', 'Biopsia testicular', 'Fístula vesico-vaginal',
 ]);
+const TRAUMA_PROCEDURES = new Set(['Trauma vesical', 'Trauma renal', 'Trauma ureteral']);
 
 function isPeyronieWithProsthesis(procedure: string): boolean {
   return procedure === PEYRONIE_WITH_PROSTHESIS || procedure === LEGACY_PEYRONIE_WITH_PROSTHESIS;
@@ -82,6 +83,7 @@ export function usesStructuredProcedureDetails(procedimiento: string): boolean {
 
 export function getProcedureWorkbookFields(procedimiento: string, storedDetail: string | null | undefined): ProcedureWorkbookFields {
   const details = decodeProcedureDetails(procedimiento, storedDetail);
+  const freeTextDetail = clean(storedDetail);
   const { tipoDerivacionUrinaria, tecnica, tipoProtesis } = details;
   const procedimientoBase = procedimiento === LEGACY_PEYRONIE_PROCEDURE
     ? PEYRONIE_PROCEDURE
@@ -103,6 +105,8 @@ export function getProcedureWorkbookFields(procedimiento: string, storedDetail: 
     procedimientoFinal = `${procedimientoBase} ${tecnica}`;
   } else if (procedimientoBase === 'Fístula vesico-vaginal' && tecnica) {
     procedimientoFinal = `${procedimientoBase} + ${tecnica}`;
+  } else if (TRAUMA_PROCEDURES.has(procedimientoBase) && freeTextDetail) {
+    procedimientoFinal = `${procedimientoBase}: ${freeTextDetail}`;
   }
 
   return { procedimientoBase, procedimientoFinal, ...details };
@@ -111,6 +115,18 @@ export function getProcedureWorkbookFields(procedimiento: string, storedDetail: 
 function inferWorkbookFields(procedimientoFinal: string): ProcedureWorkbookFields {
   const display = clean(procedimientoFinal);
   const empty = { tipoDerivacionUrinaria: '', tecnica: '', tipoProtesis: '' };
+
+  for (const traumaProcedure of TRAUMA_PROCEDURES) {
+    const prefix = `${traumaProcedure}:`;
+    if (display.startsWith(prefix)) {
+      return {
+        procedimientoBase: traumaProcedure,
+        procedimientoFinal: display,
+        ...empty,
+        tecnica: display.slice(prefix.length).trim(),
+      };
+    }
+  }
 
   if (display.startsWith('Cistectomía radical + ')) {
     return {
@@ -197,5 +213,10 @@ export function parseProcedureWorkbookFields(
     tecnica: clean(tecnica) || inferred.tecnica,
     tipoProtesis: clean(tipoProtesis) || inferred.tipoProtesis,
   };
-  return { procedimiento: base, storedDetail: encodeProcedureDetails(base, details) };
+  return {
+    procedimiento: base,
+    storedDetail: TRAUMA_PROCEDURES.has(base)
+      ? details.tecnica || null
+      : encodeProcedureDetails(base, details),
+  };
 }
