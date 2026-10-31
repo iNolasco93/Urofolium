@@ -10,7 +10,7 @@ try {
   for (const name of bundled) {
     await build({ entryPoints: [`tests/${name}.test.ts`], bundle: true, platform: 'node', format: 'cjs', outfile: join(directory, `${name}.test.cjs`), logLevel: 'silent' });
   }
-  const result = spawnSync(process.execPath, ['--test', ...bundled.map(name => join(directory, `${name}.test.cjs`)), resolve('tests/database.test.ts'), resolve('tests/procedureWorkbook.test.mjs'), resolve('tests/backupService.test.mjs')], { stdio: 'inherit' });
+  const result = spawnSync(process.execPath, ['--test', ...bundled.map(name => join(directory, `${name}.test.cjs`)), resolve('tests/database.test.ts'), resolve('tests/procedureWorkbook.test.mjs'), resolve('tests/backupService.test.mjs'), resolve('tests/buildTooling.test.mjs')], { stdio: 'inherit' });
   if (result.error) throw result.error;
   process.exitCode = result.status ?? 1;
 } finally {
