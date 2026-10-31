@@ -113,13 +113,3 @@ export function onAuthChange(callback: (user: AuthUser | null, event: AuthChange
   });
   return () => data.subscription.unsubscribe();
 }
-
-/** Recupera los datos de la DB original para la migración. */
-export async function fetchSupabaseProcedures(): Promise<unknown[]> {
-  const { data, error } = await supabase
-    .from('procedures')
-    .select('*')
-    .order('fecha', { ascending: false });
-  if (error) throw new Error('Error al leer Supabase: ' + error.message);
-  return data ?? [];
-}

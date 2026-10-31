@@ -15,8 +15,8 @@ async function harness() {
   const state = { owner: 'account-a', payload: payload(), filename: null, replaced: false, meta: {}, key: null, replacementError: false, changeDuringDecrypt: false };
   const modules = {
     '@capacitor/core': 'export const Capacitor={getPlatform:()=>"web"};',
-    '../auth/authService': 'export const getCurrentUser=async()=>({id:"account-a",email:"a@example.test"}); export const fetchSupabaseProcedures=async()=>[];',
-    '../db/procedureRepository': 'export const getAllProcedures=async()=>[];export const upsertProcedures=async()=>{};',
+    '../auth/authService': 'export const getCurrentUser=async()=>({id:"account-a",email:"a@example.test"});',
+    '../db/procedureRepository': 'export const getAllProcedures=async()=>[];',
     '../db/stoneRepository': 'export const getAllStoneDetails=async()=>[];',
     '../db/database': `export const runLocalWrite=async(id,task)=>task();export const getDatabaseOwner=()=>state.owner;export const assertDatabaseOwner=(id)=>{if(id!==state.owner)throw Error('Account changed')};export const replaceDatabaseContents=async()=>{if(state.replacementError)throw Error('Storage failure');state.replaced=true;};`,
     '../db/metaRepository': 'export const getMeta=async()=>null; export const setMeta=async(key,value)=>{state.meta[key]=value;};',

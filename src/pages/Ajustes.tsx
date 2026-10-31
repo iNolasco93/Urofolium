@@ -8,7 +8,6 @@ import {
   getBackupPassphrase,
   getLastBackupInfo,
   getOrCreateBackupPassphrase,
-  migrateFromSupabase,
   restoreBackupNow,
   restoreManualBackup,
   updateBackupPassphrase,
@@ -84,14 +83,6 @@ export default function Ajustes() {
       setBusy(false);
     }
   };
-
-  const handleMigrate = () => wrapAction(async () => {
-    const count = await migrateFromSupabase();
-    if (count === 0) {
-      return 'No se encontraron registros en Supabase para este usuario.';
-    }
-    return `Migrados ${count} registros desde Supabase. Te recomendamos hacer un backup ahora.`;
-  });
 
   const handleSaveProfile = () => wrapAction(async () => {
     const updatedUser = await updateAccountProfile(displayName, residencyStartMonth);
@@ -178,14 +169,6 @@ export default function Ajustes() {
         </p>
         <button className="btn-ghost" onClick={handleSaveProfile} disabled={busy || displayName.trim().length < 2} style={{ marginTop: 10 }}>
           Guardar perfil
-        </button>
-      </div>
-
-      <div className="card" style={{ marginBottom: 16 }}>
-        <h3 style={{ fontSize: 16, marginBottom: 12 }}>Migración de datos (una vez)</h3>
-        <p style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 12 }}>Descarga tus cirugías antiguas del servidor a la base de datos local del móvil.</p>
-        <button className="btn-primary" onClick={handleMigrate} disabled={busy}>
-          {busy ? 'Importando...' : 'Importar datos desde Supabase'}
         </button>
       </div>
 

@@ -1,6 +1,6 @@
 import { Capacitor } from '@capacitor/core';
-import { getCurrentUser, fetchSupabaseProcedures } from '../auth/authService';
-import { getAllProcedures, upsertProcedures } from '../db/procedureRepository';
+import { getCurrentUser } from '../auth/authService';
+import { getAllProcedures } from '../db/procedureRepository';
 import { getAllStoneDetails } from '../db/stoneRepository';
 import { assertDatabaseOwner, getDatabaseOwner, replaceDatabaseContents, runLocalWrite } from '../db/database';
 import { CURRENT_SCHEMA_VERSION } from '../db/migrations';
@@ -10,7 +10,7 @@ import { uploadFileToDrive, downloadLatestBackup, rotateWeeklyBackup, findFileBy
 import { APP_CONFIG } from '../config/appConfig';
 import { validateBackupPayload } from './backupValidation';
 import { migrateProcedureCatalog } from '../lib/migrationReview';
-import type { BackupPayload, BackupInfo, Procedure } from '../lib/types';
+import type { BackupPayload, BackupInfo } from '../lib/types';
 
 const APP_VERSION = '1.0.0';
 const BACKUP_VERSION = 3;
@@ -174,34 +174,4 @@ export async function checkAndAutoBackup(): Promise<boolean> {
 export async function hasBackupAvailable(): Promise<{ found: boolean; date: string | null }> {
   const file = await findFileByName(LATEST_FILENAME).catch(() => null);
   return { found: !!file, date: file?.modifiedTime ?? null };
-}
-
-export async function migrateFromSupabase(): Promise<number> {
-  const ownerId = getDatabaseOwner();
-  const rows = await fetchSupabaseProcedures();
-  assertDatabaseOwner(ownerId);
-  const mapped: Procedure[] = rows.map((r: unknown) => {
-    const row = r as Record<string, unknown>;
-    const now = new Date().toISOString();
-    return migrateProcedureCatalog({
-      id: (row.id as string) ?? crypto.randomUUID(),
-      fecha: (row.fecha as string) ?? now.slice(0, 10),
-      categoria: (row.categoria as string) ?? '',
-      procedimiento: (row.procedimiento as string) ?? '',
-      abordaje: (row.abordaje as string) ?? '',
-      duracion: row.duracion != null ? Number(row.duracion) : null,
-      rol: (row.rol as string) ?? '',
-      cirujano_senior: (row.cirujano_senior as string) ?? null,
-      primer_ayudante: (row.primer_ayudante as string) ?? null,
-      segundo_ayudante: (row.segundo_ayudante as string) ?? null,
-      complicaciones: (row.complicaciones as string) ?? null,
-      otro_especificar: (row.otro_especificar as string) ?? null,
-      created_at: (row.created_at as string) ?? now,
-      updated_at: (row.updated_at as string) ?? now,
-      deleted_at: null,
-    });
-  });
-  await upsertProcedures(mapped);
-  assertDatabaseOwner(ownerId);
-  return mapped.length;
 }
