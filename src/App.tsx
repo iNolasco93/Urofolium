@@ -1,6 +1,8 @@
+import SyncBanner from './components/SyncBanner';
+import { getSyncStatus, startSync, syncNow } from './sync/syncManager';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Route, Routes, Navigate, Link } from 'react-router-dom';
-import { assertDatabaseOwner, getDatabaseOwner, isDatabaseOpenFor, isWebDatabase, lockDatabase, mergeDatabaseContents } from './db/database';
+import { assertDatabaseOwner, getDatabaseOwner, isDatabaseOpenFor, isWebDatabase, lockDatabase, mergeDatabaseContents, getDataStamp } from './db/database';
 import LocalDataGate from './components/LocalDataGate';
 import CatalogReviewBanner from './components/CatalogReviewBanner';
 import { getCurrentUser, onAuthChange } from './auth/authService';
@@ -84,11 +86,12 @@ export default function App() {
     setCatalogReady(false);
     setCatalogError('');
     (async () => {
+      const stamp = getDataStamp();
       const procedures = await getAllProcedures();
       assertDatabaseOwner(owner);
       const updates = getAutomaticCatalogMigrationUpdates(procedures);
       if (updates.length > 0) {
-        await mergeDatabaseContents(updates, [], []);
+        await mergeDatabaseContents(updates, [], [], stamp);
         assertDatabaseOwner(owner);
       }
       if (active) setCatalogReady(true);
@@ -96,7 +99,7 @@ export default function App() {
       if (active) setCatalogError(error instanceof Error ? error.message : 'No se pudo actualizar el catálogo local.');
     });
     return () => { active = false; };
-  }, [user, dbReady, catalogRetry]);
+  }, [user?.id, dbReady, catalogRetry]);
 
   useEffect(() => {
     if (!user || !dbReady || !catalogReady) return;
@@ -111,6 +114,9 @@ export default function App() {
           if (active && isDatabaseOpenFor(user.id) && found && date) setRestoreOffer({ date });
         }
       } else {
+        // Do not automatically overwrite Drive with an unpaired or stale local diary.
+        await syncNow();
+        if (!active || !isDatabaseOpenFor(user.id) || getSyncStatus().phase !== 'ready') return;
         const googleOk = await isGoogleSignedIn();
         if (googleOk) {
           checkAndAutoBackup().catch(err => console.warn('[App] Auto-backup error:', err));
@@ -119,6 +125,11 @@ export default function App() {
     })().catch(err => console.warn('[App] Backup check:', err));
     return () => { active = false; };
   }, [user, dbReady, catalogReady]);
+
+  useEffect(() => {
+    if (!user || !dbReady || !catalogReady || !privacyAccepted) return;
+    return startSync(user.id);
+  }, [user?.id, dbReady, catalogReady, privacyAccepted]);
 
   if (!authReady) {
     return (
@@ -193,6 +204,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <Layout key={user.id} user={user} onLogout={() => setUser(null)} onLock={isWebDatabase() ? () => { lockDatabase(); setDbReady(false); setCatalogReady(false); setCatalogError(''); setRestoreOffer(null); } : undefined}>
+        <SyncBanner />
         <CatalogReviewBanner />
         {restoreOffer && (
           <div className="restore-banner" style={{ background: 'var(--primary)', color: 'white', padding: 12, borderRadius: 8, marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

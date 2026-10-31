@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { getAllProcedures } from '../db/procedureRepository';
 import { getAllStoneDetails } from '../db/stoneRepository';
-import { assertDatabaseOwner, getDatabaseOwner, mergeDatabaseContents } from '../db/database';
+import { assertDatabaseOwner, getDatabaseOwner, mergeDatabaseContents, getDataStamp } from '../db/database';
 import { REQUIRED_IMPORT_COLUMNS, getProcedureWorkbookColumns, materializeProcedureImport, readProcedureWorkbook, type ProcedureImportRow } from '../lib/procedureWorkbook';
 import { CATEGORIAS, ROLES, PROCEDIMIENTOS_ORQUIECTOMIA, getAbordajesDisponibles } from '../lib/categorias';
 import type { Procedure } from '../lib/types';
@@ -260,12 +260,13 @@ export default function Importar() {
 
     try {
       assertDatabaseOwner(previewOwner);
+      const stamp = getDataStamp();
       const [existing, existingStone] = await Promise.all([getAllProcedures(), getAllStoneDetails()]);
       assertDatabaseOwner(previewOwner);
       const currentById = new Map(existing.map(procedure => [procedure.id, procedure]));
       const summaryBeforeImport = summarizeRows(rows, currentById);
       const payload = materializeProcedureImport(rows, existing, existingStone);
-      await mergeDatabaseContents(payload.procedures, payload.stoneDetails, payload.removeStoneIds);
+      await mergeDatabaseContents(payload.procedures, payload.stoneDetails, payload.removeStoneIds, stamp);
       assertDatabaseOwner(previewOwner);
       setImported(payload.procedures.length);
       setImportResult(summaryBeforeImport);

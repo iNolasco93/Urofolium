@@ -217,3 +217,37 @@ test('concurrent web creates preserve both records instead of overwriting a stal
   assert.equal(saved.length, 2);
   assert.deepEqual(new Set(saved.map(item => item.id)), new Set(results.map(item => item.id)));
 });
+
+for (const platform of ['web', 'ios'] as const) {
+  test(`${platform}: remote case, stone and merge baseline commit together and roll back together`, async () => {
+    const { api, storage, sqlite } = await createHarness(platform);
+    await api.initDatabase('account-a', PASSPHRASE);
+    await api.replaceDatabaseContents([procedure()], [stone()]);
+    const readMeta = async () => platform === 'web' ? api.getWebMeta('sync_baseline') :
+      (await api.getDB().query("SELECT value FROM app_meta WHERE key = 'sync_baseline'")).values?.[0]?.value ?? null;
+    const apply = (baseline: string) => api.applySyncState('account-a', api.getDatabaseSession(), api.getDataStamp(), [procedure('remote')], [stone('remote')], baseline);
+    assert.equal(await apply('baseline-1'), true);
+    assert.equal(await readMeta(), 'baseline-1');
+    if (platform === 'web') storage.failWrites = true; else sqlite.failNextTransaction = true;
+    await assert.rejects(apply('baseline-2'), /quota|transaction failure/);
+    assert.equal(await readMeta(), 'baseline-1');
+    assert.equal((await api.getAllStoredProcedures())[0].id, 'remote');
+    storage.failWrites = false;
+    assert.equal(await apply('baseline-2'), true);
+    assert.equal(await readMeta(), 'baseline-2');
+  });
+
+  test(`${platform}: a stale remote snapshot cannot replace a newer local change`, async () => {
+    const { api } = await createHarness(platform);
+    await api.initDatabase('account-a', PASSPHRASE);
+    await api.replaceDatabaseContents([procedure()], [stone()]);
+    const stamp = api.getDataStamp();
+    await api.updateProcedure(procedure().id, { duracion: 120 });
+    assert.equal(await api.applySyncState('account-a', api.getDatabaseSession(), stamp, [], [], 'stale'), false);
+    assert.equal((await api.getAllProcedures())[0].duracion, 120);
+    await assert.rejects(api.mergeDatabaseContents([procedure()], [], [], stamp), /cambia/);
+    await api.deleteProcedure(procedure().id);
+    assert.equal((await api.getAllProcedures()).length, 0);
+    assert.ok((await api.getAllStoredProcedures())[0].deleted_at);
+  });
+}

@@ -1,3 +1,4 @@
+import SyncSettings from '../components/SyncSettings';
 import { type ChangeEvent, type ReactNode, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getCurrentUser, updateAccountProfile } from '../auth/authService';
@@ -151,6 +152,7 @@ export default function Ajustes() {
   return (
     <div style={{ paddingBottom: 40 }}>
       <h2 style={{ marginBottom: 20, fontSize: 20 }}>Ajustes</h2>
+      <SyncSettings />
 
       {msg && <div style={{ padding: 12, marginBottom: 16, borderRadius: 8, background: msg.startsWith('Error') ? '#fdecea' : '#e6f4ea', color: msg.startsWith('Error') ? '#d93025' : '#137333' }}>{msg}</div>}
 

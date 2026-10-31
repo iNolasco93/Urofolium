@@ -18,7 +18,7 @@ async function harness() {
     '../auth/authService': 'export const getCurrentUser=async()=>({id:"account-a",email:"a@example.test"}); export const fetchSupabaseProcedures=async()=>[];',
     '../db/procedureRepository': 'export const getAllProcedures=async()=>[];export const upsertProcedures=async()=>{};',
     '../db/stoneRepository': 'export const getAllStoneDetails=async()=>[];',
-    '../db/database': `export const getDatabaseOwner=()=>state.owner;export const assertDatabaseOwner=(id)=>{if(id!==state.owner)throw Error('Account changed')};export const replaceDatabaseContents=async()=>{if(state.replacementError)throw Error('Storage failure');state.replaced=true;};`,
+    '../db/database': `export const runLocalWrite=async(id,task)=>task();export const getDatabaseOwner=()=>state.owner;export const assertDatabaseOwner=(id)=>{if(id!==state.owner)throw Error('Account changed')};export const replaceDatabaseContents=async()=>{if(state.replacementError)throw Error('Storage failure');state.replaced=true;};`,
     '../db/metaRepository': 'export const getMeta=async()=>null; export const setMeta=async(key,value)=>{state.meta[key]=value;};',
     './cryptoService': 'export const getPassphrase=async()=>"synthetic-backup-passphrase";export const savePassphrase=async(value)=>{state.key=value;};export const generatePassphrase=()=>"synthetic-generated-key";export const encrypt=async()=>new Blob();export const decrypt=async()=>{if(state.changeDuringDecrypt)state.owner="account-b";return state.payload;};',
     '../google/driveService': 'export const downloadLatestBackup=async(name)=>{state.filename=name;return new Blob();};export const uploadFileToDrive=async()=>"file";export const rotateWeeklyBackup=async()=>{};export const findFileByName=async()=>null;',

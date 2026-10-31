@@ -1,3 +1,4 @@
+import { runLocalWrite } from './database';
 import { v4 as uuidv4 } from 'uuid';
 import { getDB, getDatabaseOwner, assertDatabaseOwner, isWebDatabase, readWebProcedures, updateWebProcedures } from './database';
 import { setMeta } from './metaRepository';
@@ -64,7 +65,7 @@ export async function isDatabaseEmpty(): Promise<boolean> {
   return (await countProcedures()) === 0;
 }
 
-export async function createProcedure(
+async function createProcedureUnlocked(
   data: Omit<Procedure, 'id' | 'created_at' | 'updated_at' | 'deleted_at'>
 ): Promise<Procedure> {
   const userId = getDatabaseOwner();
@@ -96,7 +97,7 @@ export async function createProcedure(
   return { ...data, id, created_at: now, updated_at: now, deleted_at: null };
 }
 
-export async function updateProcedure(
+async function updateProcedureUnlocked(
   id: string,
   data: Partial<Omit<Procedure, 'id' | 'created_at'>>
 ): Promise<void> {
@@ -121,7 +122,7 @@ export async function updateProcedure(
   await markDataChanged(userId);
 }
 
-export async function deleteProcedure(id: string): Promise<void> {
+async function deleteProcedureUnlocked(id: string): Promise<void> {
   const userId = getDatabaseOwner();
   if (isWebDatabase()) {
     const now = new Date().toISOString();
@@ -136,7 +137,7 @@ export async function deleteProcedure(id: string): Promise<void> {
   await markDataChanged(userId);
 }
 
-export async function upsertProcedures(items: Procedure[]): Promise<void> {
+async function upsertProceduresUnlocked(items: Procedure[]): Promise<void> {
   const userId = getDatabaseOwner();
   if (isWebDatabase()) {
     await updateWebProcedures(current => {
@@ -178,4 +179,26 @@ export async function upsertProcedures(items: Procedure[]): Promise<void> {
     );
   }
   await markDataChanged(userId);
+}
+
+export function createProcedure(data: Omit<Procedure, 'id' | 'created_at' | 'updated_at' | 'deleted_at'>): Promise<Procedure> {
+  return runLocalWrite(getDatabaseOwner(), () => createProcedureUnlocked(data));
+}
+
+export function updateProcedure(id: string, data: Partial<Omit<Procedure, 'id' | 'created_at'>>): Promise<void> {
+  return runLocalWrite(getDatabaseOwner(), () => updateProcedureUnlocked(id, data));
+}
+
+export function deleteProcedure(id: string): Promise<void> {
+  return runLocalWrite(getDatabaseOwner(), () => deleteProcedureUnlocked(id));
+}
+
+export function upsertProcedures(items: Procedure[]): Promise<void> {
+  return runLocalWrite(getDatabaseOwner(), () => upsertProceduresUnlocked(items));
+}
+
+export async function getAllStoredProcedures(): Promise<Procedure[]> {
+  if (isWebDatabase()) return readWebProcedures();
+  const result = await getDB().query('SELECT * FROM procedures');
+  return (result.values ?? []).map(rowToProcedure);
 }

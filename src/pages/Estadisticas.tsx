@@ -1,3 +1,4 @@
+import { useRemoteRevision } from '../sync/syncManager';
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
@@ -33,6 +34,7 @@ type StatsFilterType = 'month' | 'category' | 'procedure' | 'litiasisProcedure' 
 type StatsFilter = { type: StatsFilterType; value: string; label: string };
 
 export default function EstadisticasPage() {
+  const remoteRevision = useRemoteRevision();
   const [procedures, setProcedures] = useState<Procedure[]>([]);
   const [residencyStartMonth, setResidencyStartMonth] = useState<string | null>(null);
   const [residencyFilter, setResidencyFilter] = useState<ResidencyFilter>('current');
@@ -46,7 +48,7 @@ export default function EstadisticasPage() {
       setResidencyStartMonth(currentUser?.residencyStartMonth ?? null);
       setLoading(false);
     });
-  }, []);
+  }, [remoteRevision]);
 
   const currentResidencyYear = useMemo(
     () => getCurrentResidencyYear(residencyStartMonth),

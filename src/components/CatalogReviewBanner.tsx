@@ -1,3 +1,4 @@
+import { useRemoteRevision } from '../sync/syncManager';
 import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { assertDatabaseOwner, getDatabaseOwner } from '../db/database';
@@ -6,6 +7,7 @@ import { getMigrationReviewCases } from '../lib/migrationReview';
 
 export default function CatalogReviewBanner() {
   const location = useLocation();
+  const remoteRevision = useRemoteRevision();
   const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
@@ -18,7 +20,7 @@ export default function CatalogReviewBanner() {
       })
       .catch(() => { if (active) setPendingCount(0); });
     return () => { active = false; };
-  }, [location.pathname]);
+  }, [location.pathname, remoteRevision]);
 
   if (pendingCount === 0 || location.pathname === '/revision-catalogo') return null;
 

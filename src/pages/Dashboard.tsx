@@ -1,3 +1,4 @@
+import { useRemoteRevision } from '../sync/syncManager';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getAllProcedures, countProcedures } from '../db/procedureRepository';
@@ -15,6 +16,7 @@ function getGreetingName(user: AuthUser): string {
 }
 
 export default function Dashboard({ user }: DashboardProps) {
+  const remoteRevision = useRemoteRevision();
   const [procedures, setProcedures] = useState<Procedure[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -30,7 +32,7 @@ export default function Dashboard({ user }: DashboardProps) {
       setTotal(count);
       setLoading(false);
     })();
-  }, []);
+  }, [remoteRevision]);
 
   if (loading) return <div style={{ textAlign: 'center', padding: 40, color: 'var(--text2)' }}>Cargando...</div>;
 

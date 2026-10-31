@@ -1,15 +1,18 @@
+import { same } from '../sync/syncMerge';
+import { useRemoteRevision } from '../sync/syncManager';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getCurrentUser } from '../auth/authService';
 import { getAllProcedures, deleteProcedure } from '../db/procedureRepository';
 import { getAllStoneDetails } from '../db/stoneRepository';
-import { assertDatabaseOwner, getDatabaseOwner } from '../db/database';
+import { assertDatabaseOwner, getDatabaseOwner, runLocalWrite } from '../db/database';
 import { createProcedureWorkbook } from '../lib/procedureWorkbook';
 import { getResidencyPeriod, RESIDENCY_YEAR_KEYS, type ResidencyYearKey } from '../lib/residency';
 import type { Procedure } from '../lib/types';
 import * as XLSX from 'xlsx';
 
 export default function Listado() {
+  const remoteRevision = useRemoteRevision();
   const [procedures, setProcedures] = useState<Procedure[]>([]);
   const [residencyStartMonth, setResidencyStartMonth] = useState<string | null>(null);
   const [selectedResidencyYears, setSelectedResidencyYears] = useState<ResidencyYearKey[]>([]);
@@ -31,10 +34,10 @@ export default function Listado() {
     setLoading(false);
   };
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); }, [remoteRevision]);
 
   const handleDelete = async (id: string) => {
-    if (confirm('¿Seguro que quieres eliminar este registro?')) {
+    if (confirm('¿Eliminar este caso del diario? El borrado se sincronizará con tus otros dispositivos.')) {
       await deleteProcedure(id);
       loadData();
     }
@@ -81,7 +84,13 @@ export default function Listado() {
     try {
       if (!loadedOwner) throw new Error('Vuelve a cargar el listado antes de exportar.');
       assertDatabaseOwner(loadedOwner);
-      const stoneDetails = await getAllStoneDetails();
+      const stoneDetails = await runLocalWrite(loadedOwner, async () => {
+        const current = new Map((await getAllProcedures()).map(item => [item.id, item]));
+        if (filtered.some(item => !same(item, current.get(item.id)))) {
+          throw new Error('El listado ha recibido cambios. Revisa los registros actualizados y vuelve a exportar.');
+        }
+        return getAllStoneDetails();
+      }, false);
       assertDatabaseOwner(loadedOwner);
       const workbook = createProcedureWorkbook(filtered, stoneDetails);
       XLSX.writeFile(workbook, `urofolium-registros-${formatFilenameScope(selectedResidencyYears)}.xlsx`);

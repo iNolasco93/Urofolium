@@ -2,7 +2,7 @@ import { Capacitor } from '@capacitor/core';
 import { getCurrentUser, fetchSupabaseProcedures } from '../auth/authService';
 import { getAllProcedures, upsertProcedures } from '../db/procedureRepository';
 import { getAllStoneDetails } from '../db/stoneRepository';
-import { assertDatabaseOwner, getDatabaseOwner, replaceDatabaseContents } from '../db/database';
+import { assertDatabaseOwner, getDatabaseOwner, replaceDatabaseContents, runLocalWrite } from '../db/database';
 import { CURRENT_SCHEMA_VERSION } from '../db/migrations';
 import { getMeta, setMeta } from '../db/metaRepository';
 import { encrypt, decrypt, getPassphrase, savePassphrase, generatePassphrase } from './cryptoService';
@@ -49,19 +49,21 @@ async function buildBackupPayload(): Promise<BackupPayload> {
   const user = await getCurrentUser();
   if (!user) throw new Error('No hay sesión activa');
   assertDatabaseOwner(user.id);
-  const procedures = await getAllProcedures();
-  assertDatabaseOwner(user.id);
-  const procedureIds = new Set(procedures.map(procedure => procedure.id));
-  const stoneDetails = (await getAllStoneDetails()).filter(details => procedureIds.has(details.procedure_id));
-  assertDatabaseOwner(user.id);
-  const deviceLabel = (await getMeta('device_label')) ?? 'Desconocido';
-  assertDatabaseOwner(user.id);
-  return {
-    app: 'UroFolium', backupVersion: BACKUP_VERSION, createdAt: new Date().toISOString(),
-    user: { supabaseUserId: user.id, email: user.email },
-    device: { platform: Capacitor.getPlatform(), appVersion: APP_VERSION, label: deviceLabel },
-    schema: { version: CURRENT_SCHEMA_VERSION }, data: { procedures, stoneDetails },
-  };
+  return runLocalWrite(user.id, async () => {
+    const procedures = await getAllProcedures();
+    assertDatabaseOwner(user.id);
+    const procedureIds = new Set(procedures.map(procedure => procedure.id));
+    const stoneDetails = (await getAllStoneDetails()).filter(details => procedureIds.has(details.procedure_id));
+    assertDatabaseOwner(user.id);
+    const deviceLabel = (await getMeta('device_label')) ?? 'Desconocido';
+    assertDatabaseOwner(user.id);
+    return {
+      app: 'UroFolium', backupVersion: BACKUP_VERSION, createdAt: new Date().toISOString(),
+      user: { supabaseUserId: user.id, email: user.email },
+      device: { platform: Capacitor.getPlatform(), appVersion: APP_VERSION, label: deviceLabel },
+      schema: { version: CURRENT_SCHEMA_VERSION }, data: { procedures, stoneDetails },
+    };
+  }, false);
 }
 
 export async function createBackupNow(): Promise<void> {

@@ -1,6 +1,6 @@
 # Almacenamiento por cuenta y recuperación
 
-Los procedimientos siguen siendo locales. Iniciar sesión no sincroniza cirugías entre dispositivos.
+Los registros se guardan cifrados en el dispositivo y se sincronizan cifrados con otros dispositivos de la misma cuenta después de desbloquearlos. Véase [Sincronización cifrada](sincronizacion-cifrada.md).
 
 ## Navegador
 
@@ -8,13 +8,14 @@ Cada cuenta tiene un almacén independiente. Los procedimientos, detalles de lit
 
 Al abrir los datos por primera vez se elige una **clave local** de al menos 12 caracteres. La aplicación no la persiste: la clave derivada vive en memoria hasta bloquear, salir o cerrar la página. Al recargar se pide de nuevo. El botón **Bloquear** permite cerrar el acceso sin cerrar la sesión de la cuenta.
 
-Son tres credenciales distintas:
+Son cuatro credenciales distintas:
 
 - Contraseña de la cuenta: autenticación con Supabase.
 - Clave local: desbloquea los registros de ese navegador.
 - Clave de respaldo: descifra los archivos de copia, incluidos los de Google Drive.
+- Clave de sincronización: vincula dispositivos con el diario remoto cifrado.
 
-Perder la clave local no se resuelve restableciendo la contraseña de Supabase. Para recuperar los registros se necesita una copia cifrada y su clave de respaldo, que puede restaurarse en otro navegador o dispositivo con la misma cuenta. La app no tiene una puerta trasera para recuperar la clave local.
+Perder la clave local no se resuelve restableciendo la contraseña de Supabase. Para recuperar los registros se necesita la clave de sincronización o una copia cifrada con su clave de respaldo, que puede restaurarse en otro navegador o dispositivo con la misma cuenta. La app no tiene una puerta trasera para recuperar la clave local.
 
 Las escrituras se serializan y se confirman en memoria solo después de persistir el documento cifrado completo. Una cuota agotada o error de cifrado conserva el estado anterior. Se usan Web Locks cuando están disponibles y se rechaza la escritura desde una pestaña cuyo documento ya cambió. Cerrar la sesión cancela escrituras de cifrado pendientes.
 

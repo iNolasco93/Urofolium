@@ -43,6 +43,7 @@ export interface StoneDetails {
 
 // ─── Metadatos de la app ────────────────────────────────────────────────────
 export type MetaKey =
+  | 'sync_baseline'
   | 'schema_version'
   | 'last_backup_at'
   | 'last_backup_drive_file_id'

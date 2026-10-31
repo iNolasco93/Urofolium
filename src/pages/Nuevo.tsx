@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { canonical } from '../sync/syncMerge';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getAllProcedures, getProcedureById } from '../db/procedureRepository';
 import { getStoneDetailsByProcedureId } from '../db/stoneRepository';
-import { assertDatabaseOwner, getDatabaseOwner, mergeDatabaseContents } from '../db/database';
+import { assertDatabaseOwner, getDatabaseOwner, mergeDatabaseContents, getDataStamp, runLocalWrite } from '../db/database';
 import {
   CATEGORIAS, TODOS_ABORDAJES, ROLES, PATOLOGIA_PROSTATICA,
   PROCEDIMIENTOS_HBP, OTROS_PROCEDIMIENTOS_PROSTATICOS,
@@ -318,6 +319,7 @@ export default function Nuevo() {
   const { id } = useParams();
   const navigate = useNavigate();
   const isEdit = !!id;
+  const originalCase = useRef<string | null>(null);
   const [form, setForm] = useState({ ...EMPTY });
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -343,7 +345,9 @@ export default function Nuevo() {
 
     let cancelled = false;
     (async () => {
-      const data = await getProcedureById(id);
+      const { data, storedStone } = await runLocalWrite(getDatabaseOwner(), async () => ({
+        data: await getProcedureById(id), storedStone: await getStoneDetailsByProcedureId(id),
+      }), false);
       if (!data || cancelled) return;
 
       const esOtro = data.procedimiento?.startsWith('Otros: ');
@@ -352,8 +356,9 @@ export default function Nuevo() {
         ? data.procedimiento || ''
         : esOtro ? 'Otros' : parsedProcedure.procedimiento;
       const parsedDetail = parseStoredDetail(parsedProcedure.procedimiento, data.otro_especificar);
+      originalCase.current = canonical({ procedure: data, stone: storedStone });
       const stoneForm = data.categoria === LITIASIS
-        ? stoneDetailsToForm(await getStoneDetailsByProcedureId(id), data.procedimiento || '')
+        ? stoneDetailsToForm(storedStone, data.procedimiento || '')
         : { ...STONE_EMPTY };
       if (cancelled) return;
       const tieneComplicaciones = !!data.complicaciones && data.complicaciones !== 'No';
@@ -619,6 +624,7 @@ export default function Nuevo() {
 
     try {
       const ownerId = getDatabaseOwner();
+      const stamp = getDataStamp();
       const procedures = await getAllProcedures();
       assertDatabaseOwner(ownerId);
       const potentialDuplicates = findPotentialDuplicates(payload, procedures, id);
@@ -630,6 +636,9 @@ export default function Nuevo() {
       if (isEdit && !existing) throw new Error('Este registro ya no está disponible. Vuelve al listado.');
       const procedureId = existing?.id ?? crypto.randomUUID();
       const oldStone = existing ? await getStoneDetailsByProcedureId(procedureId) : null;
+      if (existing && originalCase.current !== canonical({ procedure: existing, stone: oldStone })) {
+        throw new Error('Este caso ha cambiado desde que lo abriste. Tus cambios siguen en el formulario. Vuelve al listado y abre el caso actualizado antes de guardar.');
+      }
       assertDatabaseOwner(ownerId);
       const now = new Date().toISOString();
       const procedure: Procedure = {
@@ -639,7 +648,8 @@ export default function Nuevo() {
       const details: StoneDetails[] = isLitiasis ? [{
         ...buildStonePayload(procedureId), created_at: oldStone?.created_at ?? now, updated_at: now,
       }] : [];
-      await mergeDatabaseContents([procedure], details, isLitiasis ? [] : [procedureId]);
+      await mergeDatabaseContents([procedure], details, isLitiasis ? [] : [procedureId], stamp);
+      originalCase.current = canonical({ procedure, stone: details[0] ?? null });
       assertDatabaseOwner(ownerId);
 
       setSuccess(true);

@@ -1,3 +1,4 @@
+import { useRemoteRevision } from '../sync/syncManager';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { assertDatabaseOwner, getDatabaseOwner } from '../db/database';
@@ -5,6 +6,7 @@ import { getAllProcedures } from '../db/procedureRepository';
 import { getMigrationReviewCases, type MigrationReviewCase } from '../lib/migrationReview';
 
 export default function RevisionCatalogo() {
+  const remoteRevision = useRemoteRevision();
   const navigate = useNavigate();
   const [cases, setCases] = useState<MigrationReviewCase[]>([]);
   const [loading, setLoading] = useState(true);
@@ -23,7 +25,7 @@ export default function RevisionCatalogo() {
       })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [remoteRevision]);
 
   if (loading) return <div style={{ textAlign: 'center', padding: 40, color: 'var(--text2)' }}>Revisando registros...</div>;
 

@@ -21,7 +21,7 @@ export default function SafetyNotice({ compact = false, summary = false }: Safet
       {!summary && (
         <p style={{ margin: '0 0 8px' }}>No introduzcas nombre, NHC, fecha de nacimiento, teléfono ni ningún dato que identifique a un paciente.</p>
       )}
-      <p style={{ margin: '0 0 8px' }}>Los registros se guardan localmente en este dispositivo. La exportación local y las copias en Drive dependen de ti.</p>
+      <p style={{ margin: '0 0 8px' }}>Los registros se guardan cifrados en este dispositivo y se sincronizan cifrados con tu cuenta cuando hay conexión. Conserva también tus copias de seguridad independientes.</p>
       <p style={{ margin: 0 }}>Esta herramienta es un logbook formativo para residentes y no sustituye los sistemas oficiales del hospital.</p>
     </div>
   );

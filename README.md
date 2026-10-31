@@ -26,3 +26,4 @@ Los registros clínicos se almacenan localmente y cifrados por cuenta. No introd
 ## Derechos
 
 Copyright © 2026 Ivan Nolasco. Todos los derechos reservados. Este repositorio no concede una licencia para copiar, modificar, distribuir ni explotar comercialmente el código.
+- [Sincronización cifrada entre dispositivos](docs/sincronizacion-cifrada.md)

@@ -1,3 +1,4 @@
+import { emitDatabaseLock, emitLocalChange } from '../sync/syncSignals';
 import { CapacitorSQLite, SQLiteConnection, type SQLiteDBConnection, type capSQLiteSet } from '@capacitor-community/sqlite';
 import { Capacitor } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
@@ -25,6 +26,27 @@ let owner: string | null = null;
 let generation = 0;
 let closing: Promise<void> = Promise.resolve();
 let opening: Promise<void> = Promise.resolve();
+let localWrites: Promise<void> = Promise.resolve();
+let dataStamp = 0;
+export function getDatabaseSession(): number { getDatabaseOwner(); return generation; }
+export function getDataStamp(): number { getDatabaseOwner(); return dataStamp; }
+
+/** Serialize complete case writes with remote application, including native SQLite. */
+export function runLocalWrite<T>(userId: string, task: () => Promise<T>, notify = true): Promise<T> {
+  const ticket = generation;
+  const operation = localWrites.then(async () => {
+    if (ticket !== generation) throw new Error('La sesión local ha cambiado. La operación se ha cancelado.');
+    assertDatabaseOwner(userId);
+    const result = await task();
+    if (ticket !== generation) throw new Error('La sesión local ha cambiado. La operación se ha cancelado.');
+    assertDatabaseOwner(userId);
+    if (notify) { dataStamp++; emitLocalChange(); }
+    return result;
+  });
+  localWrites = operation.then(() => undefined, () => undefined);
+  return operation;
+}
+
 
 function scope(userId: string): string {
   if (!userId) throw new Error('No hay usuario para abrir los datos locales.');
@@ -49,6 +71,7 @@ export function isDatabaseOpenFor(userId: string): boolean { return owner === us
 
 /** Revoke access immediately, including writes waiting for encryption. */
 export function lockDatabase(): void {
+  emitDatabaseLock();
   generation++;
   owner = null;
   vault?.lock();
@@ -296,7 +319,10 @@ function dataStatements(procedures: Procedure[], stones: StoneDetails[]): capSQL
     { statement: 'INSERT OR REPLACE INTO app_meta (key,value) VALUES (?,?)', values: ['last_data_changed_at', new Date().toISOString()] },
   ];
 }
-export async function replaceDatabaseContents(procedures: Procedure[], stoneDetails: StoneDetails[]): Promise<void> {
+export function replaceDatabaseContents(procedures: Procedure[], stoneDetails: StoneDetails[]): Promise<void> {
+  return runLocalWrite(getDatabaseOwner(), () => replaceDatabaseContentsUnlocked(procedures, stoneDetails));
+}
+async function replaceDatabaseContentsUnlocked(procedures: Procedure[], stoneDetails: StoneDetails[]): Promise<void> {
   if (isWebDatabase()) return activeVault().update(state => {
     state.procedures = procedures;
     state.stoneDetails = stoneDetails;
@@ -304,7 +330,13 @@ export async function replaceDatabaseContents(procedures: Procedure[], stoneDeta
   });
   await getDB().executeSet([{ statement: 'DELETE FROM stone_details', values: [] }, { statement: 'DELETE FROM procedures', values: [] }, ...dataStatements(procedures, stoneDetails)], true);
 }
-export async function mergeDatabaseContents(procedures: Procedure[], stoneDetails: StoneDetails[], removeStoneIds: string[] = []): Promise<void> {
+export function mergeDatabaseContents(procedures: Procedure[], stoneDetails: StoneDetails[], removeStoneIds: string[] = [], expectedStamp?: number): Promise<void> {
+  return runLocalWrite(getDatabaseOwner(), async () => {
+    if (expectedStamp !== undefined && expectedStamp !== dataStamp) throw new Error('Los registros cambiaron mientras los revisabas. Vuelve a abrirlos antes de guardar.');
+    await mergeDatabaseContentsUnlocked(procedures, stoneDetails, removeStoneIds);
+  });
+}
+async function mergeDatabaseContentsUnlocked(procedures: Procedure[], stoneDetails: StoneDetails[], removeStoneIds: string[]): Promise<void> {
   if (isWebDatabase()) return activeVault().update(state => mergeState(state, procedures, stoneDetails, removeStoneIds));
   await getDB().executeSet([...removeStoneIds.map(id => ({ statement: 'DELETE FROM stone_details WHERE procedure_id = ?', values: [id] })), ...dataStatements(procedures, stoneDetails)], true);
 }
@@ -335,4 +367,28 @@ export async function removeLocalSecrets(keys: string[]): Promise<void> {
     const secureKey = `${scope(userId)}_${key}`;
     if (stored.includes(secureKey)) await SecureStoragePlugin.remove({ key: secureKey });
   }
+}
+
+/** Commit the data and its exact merge baseline together; a failed write advances neither. */
+export function applySyncState(userId: string, session: number, stamp: number, procedures: Procedure[], stoneDetails: StoneDetails[], baseline: string): Promise<boolean> {
+  return runLocalWrite(userId, async () => {
+    if (session !== generation || stamp !== dataStamp) return false;
+    if (isWebDatabase()) {
+      await activeVault().update(state => {
+        state.procedures = procedures;
+        state.stoneDetails = stoneDetails;
+        state.meta.sync_baseline = baseline;
+        state.meta.last_data_changed_at = new Date().toISOString();
+      });
+    } else {
+      await getDB().executeSet([
+        { statement: 'DELETE FROM stone_details', values: [] },
+        { statement: 'DELETE FROM procedures', values: [] },
+        ...dataStatements(procedures, stoneDetails),
+        { statement: 'INSERT OR REPLACE INTO app_meta (key,value) VALUES (?,?)', values: ['sync_baseline', baseline] },
+      ], true);
+    }
+    dataStamp++;
+    return true;
+  }, false);
 }

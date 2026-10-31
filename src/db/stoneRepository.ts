@@ -1,3 +1,4 @@
+import { runLocalWrite } from './database';
 import { clearStoneDetails, getDB, getDatabaseOwner, assertDatabaseOwner, isWebDatabase, readWebStoneDetails, updateWebStoneDetails } from './database';
 import { setMeta } from './metaRepository';
 import type { StoneDetails, StoneProcedureRaw } from '../lib/types';
@@ -66,7 +67,7 @@ export async function getAllStoneDetails(): Promise<StoneDetails[]> {
   return (res.values ?? []).map(rowToStoneDetails);
 }
 
-export async function upsertStoneDetails(data: StoneDetailsInput): Promise<StoneDetails> {
+async function upsertStoneDetailsUnlocked(data: StoneDetailsInput): Promise<StoneDetails> {
   const userId = getDatabaseOwner();
   const now = new Date().toISOString();
 
@@ -125,7 +126,7 @@ export async function upsertStoneDetails(data: StoneDetailsInput): Promise<Stone
   return { ...data, created_at: createdAt, updated_at: now };
 }
 
-export async function deleteStoneDetails(procedureId: string): Promise<void> {
+async function deleteStoneDetailsUnlocked(procedureId: string): Promise<void> {
   const userId = getDatabaseOwner();
   if (isWebDatabase()) {
     await updateWebStoneDetails(items => items.filter(item => item.procedure_id !== procedureId));
@@ -137,13 +138,13 @@ export async function deleteStoneDetails(procedureId: string): Promise<void> {
   await markDataChanged(userId);
 }
 
-export async function clearAllStoneDetails(): Promise<void> {
+async function clearAllStoneDetailsUnlocked(): Promise<void> {
   const userId = getDatabaseOwner();
   await clearStoneDetails();
   await markDataChanged(userId);
 }
 
-export async function upsertStoneDetailsBatch(items: StoneDetails[]): Promise<void> {
+async function upsertStoneDetailsBatchUnlocked(items: StoneDetails[]): Promise<void> {
   const userId = getDatabaseOwner();
   if (items.length === 0) return;
 
@@ -183,4 +184,20 @@ export async function upsertStoneDetailsBatch(items: StoneDetails[]): Promise<vo
     );
   }
   await markDataChanged(userId);
+}
+
+export function upsertStoneDetails(data: StoneDetailsInput): Promise<StoneDetails> {
+  return runLocalWrite(getDatabaseOwner(), () => upsertStoneDetailsUnlocked(data));
+}
+
+export function deleteStoneDetails(procedureId: string): Promise<void> {
+  return runLocalWrite(getDatabaseOwner(), () => deleteStoneDetailsUnlocked(procedureId));
+}
+
+export function clearAllStoneDetails(): Promise<void> {
+  return runLocalWrite(getDatabaseOwner(), () => clearAllStoneDetailsUnlocked());
+}
+
+export function upsertStoneDetailsBatch(items: StoneDetails[]): Promise<void> {
+  return runLocalWrite(getDatabaseOwner(), () => upsertStoneDetailsBatchUnlocked(items));
 }
