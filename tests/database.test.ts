@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHarness, PASSPHRASE, procedure, seedLegacyNative, seedLegacyWeb, stone } from './helpers/databaseHarness.ts';
+import { MIGRATIONS } from '../src/db/migrations.ts';
 
 test('web database isolates accounts, encrypts records and secrets, and preserves them after locking', async () => {
   const { api, storage } = await createHarness();
@@ -251,3 +252,27 @@ for (const platform of ['web', 'ios'] as const) {
     assert.ok((await api.getAllStoredProcedures())[0].deleted_at);
   });
 }
+
+
+test('an existing version-3 native account migrates its records and preserves notes', async () => {
+  const { api, sqlite } = await createHarness('ios');
+  const name = 'urofolium_account_' + Buffer.from('account-a').toString('hex');
+  const connection = await sqlite.createConnection(name, true, 'secret');
+  for (const migration of MIGRATIONS.filter(item => item.version <= 3)) await connection.execute(migration.sql);
+  await connection.run("INSERT OR REPLACE INTO app_meta (key,value) VALUES (?,?)", ['schema_version', '3']);
+  const original = procedure();
+  const columns = Object.keys(original).filter(key => !['estado', 'nota_conocida', 'notas_revisadas', 'notas'].includes(key));
+  const values = columns.map(key => original[key as keyof typeof original]).map(value => typeof value === 'boolean' ? Number(value) : value);
+  await connection.run(`INSERT INTO procedures (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`, values);
+  await sqlite.closeConnection(name);
+  sqlite.failNextMigration = true;
+  await assert.rejects(api.initDatabase('account-a'), /migration failure/);
+  const previous = sqlite.databases.get(name)!;
+  assert.equal(previous.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get()?.value, '3');
+  assert.equal(previous.prepare('PRAGMA table_info(procedures)').all().some(row => row.name === 'estado'), false);
+  await api.initDatabase('account-a');
+  const saved = await api.getProcedureById(original.id);
+  assert.equal(saved?.estado, 'realizada');
+  assert.equal(saved?.notas, original.notas ?? null);
+  assert.equal(saved?.nota_conocida, false);
+});

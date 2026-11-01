@@ -1,4 +1,4 @@
-import { runLocalWrite } from './database';
+import { runLocalWrite, upsertNativeProcedures } from './database';
 import { v4 as uuidv4 } from 'uuid';
 import { getDB, getDatabaseOwner, assertDatabaseOwner, isWebDatabase, readWebProcedures, updateWebProcedures } from './database';
 import { setMeta } from './metaRepository';
@@ -13,6 +13,9 @@ function rowToProcedure(row: Record<string, unknown>): Procedure {
   return {
     id: row.id as string,
     fecha: row.fecha as string,
+    estado: (row.estado as Procedure['estado']) ?? 'realizada',
+    nota_conocida: row.nota_conocida === 1 || row.nota_conocida === true,
+    notas_revisadas: row.notas_revisadas === 1 || row.notas_revisadas === true,
     categoria: row.categoria as string,
     procedimiento: row.procedimiento as string,
     abordaje: row.abordaje as string,
@@ -22,6 +25,7 @@ function rowToProcedure(row: Record<string, unknown>): Procedure {
     primer_ayudante: (row.primer_ayudante as string) ?? null,
     segundo_ayudante: (row.segundo_ayudante as string) ?? null,
     complicaciones: (row.complicaciones as string) ?? null,
+    notas: (row.notas as string) ?? null,
     otro_especificar: (row.otro_especificar as string) ?? null,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
@@ -75,26 +79,11 @@ async function createProcedureUnlocked(
     await updateWebProcedures(items => [...items, procedure]);
     return procedure;
   }
-  const db = getDB();
   const now = new Date().toISOString();
-  const id = uuidv4();
-
-  await db.run(
-    `INSERT INTO procedures
-      (id, fecha, categoria, procedimiento, abordaje, duracion, rol,
-       cirujano_senior, primer_ayudante, segundo_ayudante, complicaciones,
-       otro_especificar, created_at, updated_at, deleted_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)`,
-    [
-      id, data.fecha, data.categoria, data.procedimiento,
-      data.abordaje, data.duracion ?? null, data.rol,
-      data.cirujano_senior ?? null, data.primer_ayudante ?? null, data.segundo_ayudante ?? null,
-      data.complicaciones ?? null, data.otro_especificar ?? null,
-      now, now,
-    ]
-  );
+  const procedure = { ...data, id: uuidv4(), created_at: now, updated_at: now, deleted_at: null };
+  await upsertNativeProcedures([procedure]);
   await markDataChanged(userId);
-  return { ...data, id, created_at: now, updated_at: now, deleted_at: null };
+  return procedure;
 }
 
 async function updateProcedureUnlocked(
@@ -112,9 +101,9 @@ async function updateProcedureUnlocked(
   const db = getDB();
   const now = new Date().toISOString();
 
-  const columns = ['fecha', 'categoria', 'procedimiento', 'abordaje', 'duracion', 'rol', 'cirujano_senior', 'primer_ayudante', 'segundo_ayudante', 'complicaciones', 'otro_especificar', 'deleted_at'] as const;
+  const columns = ['fecha', 'estado', 'nota_conocida', 'notas_revisadas', 'categoria', 'procedimiento', 'abordaje', 'duracion', 'rol', 'cirujano_senior', 'primer_ayudante', 'segundo_ayudante', 'complicaciones', 'notas', 'otro_especificar', 'deleted_at'] as const;
   const changed = columns.filter(column => data[column] !== undefined);
-  const values = changed.map(column => data[column] ?? null);
+  const values = changed.map(column => column === 'nota_conocida' || column === 'notas_revisadas' ? Number(data[column]) : data[column] ?? null);
   await db.run(
     `UPDATE procedures SET ${[...changed.map(column => `${column} = ?`), 'updated_at = ?'].join(', ')} WHERE id = ?`,
     [...values, now, id],
@@ -147,37 +136,7 @@ async function upsertProceduresUnlocked(items: Procedure[]): Promise<void> {
     });
     return;
   }
-  const db = getDB();
-  for (const p of items) {
-    await db.run(
-      `INSERT INTO procedures
-        (id, fecha, categoria, procedimiento, abordaje, duracion, rol,
-         cirujano_senior, primer_ayudante, segundo_ayudante, complicaciones,
-         otro_especificar, created_at, updated_at, deleted_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-       ON CONFLICT(id) DO UPDATE SET
-         fecha = excluded.fecha,
-         categoria = excluded.categoria,
-         procedimiento = excluded.procedimiento,
-         abordaje = excluded.abordaje,
-         duracion = excluded.duracion,
-         rol = excluded.rol,
-         cirujano_senior = excluded.cirujano_senior,
-         primer_ayudante = excluded.primer_ayudante,
-         segundo_ayudante = excluded.segundo_ayudante,
-         complicaciones = excluded.complicaciones,
-         otro_especificar = excluded.otro_especificar,
-         created_at = excluded.created_at,
-         updated_at = excluded.updated_at,
-         deleted_at = excluded.deleted_at`,
-      [
-        p.id, p.fecha, p.categoria, p.procedimiento,
-        p.abordaje, p.duracion ?? null, p.rol, p.cirujano_senior ?? null,
-        p.primer_ayudante ?? null, p.segundo_ayudante ?? null, p.complicaciones ?? null,
-        p.otro_especificar ?? null, p.created_at, p.updated_at, p.deleted_at ?? null,
-      ]
-    );
-  }
+  await upsertNativeProcedures(items);
   await markDataChanged(userId);
 }
 

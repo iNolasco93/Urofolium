@@ -167,7 +167,7 @@ export default function Listado() {
                     Senior: {p.cirujano_senior}
                   </div>
                 )}
-                <span className={`badge ${p.rol === 'Cirujano principal' ? 'badge-cirujano' : 'badge-ayudante'}`} style={{ marginTop: 6, display: 'inline-block' }}>{p.rol}</span>
+                <span className={`badge ${p.rol === 'Cirujano principal' ? 'badge-cirujano' : 'badge-ayudante'}`} style={{ marginTop: 6, display: 'inline-block' }}>{p.estado === 'programada' ? 'Programada' : p.rol}</span>
               </div>
               <button className="btn-ghost" onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }} style={{ color: 'var(--danger)', padding: '6px 12px' }}>🗑️</button>
             </div>

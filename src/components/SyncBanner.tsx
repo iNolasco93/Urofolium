@@ -31,14 +31,14 @@ export default function SyncBanner() {
         {conflict.caseLabel && <p style={{ fontWeight: 600 }}>{conflict.caseLabel}</p>}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
           {(['local', 'remote'] as const).map(side => <div key={side}>
-            <strong>{side === 'local' ? 'Este dispositivo' : 'Versión sincronizada'}</strong>
+            <strong>{side === 'local' ? conflict.localLabel ?? 'Este dispositivo' : conflict.remoteLabel ?? 'Versión sincronizada'}</strong>
             <dl style={{ fontSize: 13, overflowWrap: 'anywhere' }}>
               {describeSyncValue(conflict[side]).map(([label, value]) => <div key={label} style={{ marginBottom: 6 }}>
                 <dt style={{ fontWeight: 600 }}>{label}</dt><dd style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{value}</dd>
               </div>)}
             </dl>
             <button type="button" className="btn-ghost" disabled={busy} onClick={() => void action(() => resolveConflict(conflict.channel, conflict.id, side))}>
-              {side === 'local' ? 'Conservar este' : 'Conservar el sincronizado'}
+              {conflict.localLabel ? `Conservar ${side === 'local' ? conflict.localLabel.toLowerCase() : conflict.remoteLabel?.toLowerCase()}` : side === 'local' ? 'Conservar este' : 'Conservar el sincronizado'}
             </button>
           </div>)}
         </div>

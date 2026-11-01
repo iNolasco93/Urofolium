@@ -65,6 +65,10 @@ function procedure(value: unknown, index: number, schemaVersion: number): Proced
   return {
     id: text(row.id, `${path}.id`, true),
     fecha: date(row.fecha, `${path}.fecha`),
+    estado: row.estado === undefined && schemaVersion < 4 ? 'realizada' :
+      row.estado === 'programada' || row.estado === 'realizada' ? row.estado : invalid(`${path}.estado`),
+    nota_conocida: row.nota_conocida === undefined ? typeof row.notas === 'string' && !!row.notas : boolean(row.nota_conocida, `${path}.nota_conocida`),
+    notas_revisadas: row.notas_revisadas === undefined ? false : boolean(row.notas_revisadas, `${path}.notas_revisadas`),
     categoria: text(row.categoria, `${path}.categoria`),
     procedimiento: text(row.procedimiento, `${path}.procedimiento`),
     abordaje: text(row.abordaje, `${path}.abordaje`),
@@ -76,6 +80,7 @@ function procedure(value: unknown, index: number, schemaVersion: number): Proced
       : nullableText(row.primer_ayudante, `${path}.primer_ayudante`),
     segundo_ayudante: nullableText(row.segundo_ayudante, `${path}.segundo_ayudante`),
     complicaciones: nullableText(row.complicaciones, `${path}.complicaciones`),
+    notas: row.notas === undefined && schemaVersion < 4 ? null : nullableText(row.notas, `${path}.notas`),
     otro_especificar: nullableText(row.otro_especificar, `${path}.otro_especificar`),
     created_at: timestamp(row.created_at, `${path}.created_at`),
     updated_at: timestamp(row.updated_at, `${path}.updated_at`),

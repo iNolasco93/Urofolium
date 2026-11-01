@@ -19,3 +19,6 @@ export function commitRemote(userId: string, expected: Record<string, number>, u
 }
 
 export { describeCase as describeSyncValue } from './syncPresentation';
+
+export const prepareLocal = undefined;
+export const reconcile = undefined;

@@ -60,6 +60,7 @@ function buildTemplateRows(): Record<string, string>[] {
   return [
     createTemplateRow({
       fecha: '2026-07-01',
+      estado: 'realizada',
       categoria: 'Patología vesical',
       procedimiento: 'RTU vesical',
       abordaje: 'Endoscópico',
@@ -71,6 +72,7 @@ function buildTemplateRows(): Record<string, string>[] {
     }),
     createTemplateRow({
       fecha: '2026-07-02',
+      estado: 'realizada',
       categoria: 'Patología testicular y escrotal',
       procedimiento: 'Vasectomía',
       abordaje: 'Abierto',
@@ -92,7 +94,8 @@ function buildInstructions(): string[][] {
     [`4. Las columnas obligatorias son: ${COLUMNAS_REQUERIDAS.join(', ')}.`],
     ['5. Usa una sola columna ayudante. UroFolium la guardará como primer_ayudante o segundo_ayudante según tu rol.'],
     ['6. También se aceptan las plantillas antiguas. Los campos opcionales que no aparecen como columnas se conservan al actualizar un id existente; una celda vacía borra ese campo.'],
-    ['7. Fecha aceptada: YYYY-MM-DD o DD/MM/YYYY.'],
+    ['7. Fecha aceptada: YYYY-MM-DD o DD/MM/YYYY. El estado puede ser programada o realizada; si se omite se conserva el registro existente o se considera realizada.'],
+    ['7a. Para una cirugía programada puedes dejar vacíos abordaje y rol.'],
     ['8. Revisa la vista previa antes de confirmar la importación.'],
     ['9. procedimiento contiene el nombre final legible. Para una reimportación exacta, conserva procedimiento_base, tipo_derivacion_urinaria, tecnica y tipo_protesis.'],
     ['10. Cistectomía radical requiere tipo_derivacion_urinaria. En Biopsia testicular usa TESE o MicroTESE con abordaje Abierto, y TESA con abordaje Percutáneo.'],

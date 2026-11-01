@@ -20,6 +20,8 @@ export interface SyncPorts {
   readRemote(signal: AbortSignal): Promise<RemoteState>;
   // Must validate every expected revision and commit all changed channels in one transaction.
   commitRemote(expected: Record<string, number>, updates: Record<string, SyncEnvelope>, signal: AbortSignal): Promise<Record<string, number> | null>;
+  prepareLocal?(channel: string, local: Entries, remote: Entries): Entries;
+  reconcile?(data: SyncData, remote: SyncData, resolutions: Resolutions): Promise<Conflict[]>;
   publish(status: SyncStatus): void;
 }
 export class SyncEngine {
@@ -106,15 +108,34 @@ export class SyncEngine {
       const expected: Record<string, number> = {};
       const updates: Record<string, SyncEnvelope> = {};
       const conflicts: Conflict[] = [];
+      const remoteData: SyncData = {};
+      const originalData: SyncData = {};
+      const wireDirty: Record<string, boolean> = {};
       const baseline: Baseline = { version: 1, channels: {} };
       for (const [channel, validate] of Object.entries(this.ports.validators)) {
         if (!Object.prototype.hasOwnProperty.call(remote, channel)) throw new Error('La respuesta de sincronización está incompleta.');
         const state = remote[channel];
         const revision = state?.revision ?? 0;
         if (revision < (local.baseline?.channels[channel]?.revision ?? 0)) throw new Error('La copia remota es anterior a la última sincronización. Se han conservado los datos locales.');
-        const remoteEntries = state ? validate(await decryptSnapshot(state.envelope, key, this.ports.userId, channel, revision)) : {};
+        const rawRemote = state ? await decryptSnapshot(state.envelope, key, this.ports.userId, channel, revision) : {};
+        const remoteEntries = validate(rawRemote);
+        originalData[channel] = JSON.parse(JSON.stringify(remoteEntries)) as Entries;
+        wireDirty[channel] = !same(rawRemote, remoteEntries);
         this.check();
-        const result = await mergeEntries(channel, validate(local.data[channel]), remoteEntries, local.baseline?.channels[channel]?.hashes, this.resolutions);
+        let localEntries = validate(local.data[channel]);
+        if (this.ports.prepareLocal) localEntries = this.ports.prepareLocal(channel, localEntries, remoteEntries);
+        // Before notes were available on both clients, an absent common note was unknown.
+        // An explicitly cleared note has nota_conocida=true and must never be filled in.
+        if (channel === 'cases') for (const [id, value] of Object.entries(remoteEntries)) {
+          const remoteCase = value as { procedure: Record<string, unknown> };
+          const localCase = localEntries[id] as { procedure: Record<string, unknown> } | undefined;
+          if (localCase?.procedure.nota_conocida === true && remoteCase.procedure.nota_conocida === false) {
+            remoteCase.procedure.notas = localCase.procedure.notas;
+            remoteCase.procedure.nota_conocida = true;
+          }
+        }
+        remoteData[channel] = remoteEntries;
+        const result = await mergeEntries(channel, localEntries, remoteEntries, local.baseline?.channels[channel]?.hashes, this.resolutions);
         this.check();
         conflicts.push(...result.conflicts.map(conflict => {
           const item = local.data.cases?.[conflict.id] as { procedure?: { fecha?: string; procedimiento?: string } } | undefined;
@@ -122,15 +143,23 @@ export class SyncEngine {
         }));
         data[channel] = result.merged;
         expected[channel] = revision;
-        baseline.channels[channel] = { revision, hashes: await hashes(result.merged) };
-        if (!state || !same(result.merged, remoteEntries)) {
-          updates[channel] = await encryptSnapshot(result.merged, key, this.ports.userId, channel, revision + 1);
-          this.check();
-        }
+        baseline.channels[channel] = { revision, hashes: {} };
       }
+      if (!conflicts.length && this.ports.reconcile) conflicts.push(...await this.ports.reconcile(data, remoteData, this.resolutions));
+      this.check();
       if (conflicts.length) {
         this.publish({ phase: 'conflict', message: `${conflicts.length} caso(s) tienen cambios diferentes. Revisa las versiones completas antes de continuar.`, conflicts });
         return;
+      }
+      for (const channel of Object.keys(expected)) {
+        baseline.channels[channel].hashes = await hashes(data[channel]);
+        // Compare to the unmodified server snapshot; notes may have been filled above.
+        const state = remote[channel];
+        const original = originalData[channel];
+        if (!state || wireDirty[channel] || !same(data[channel], original)) {
+          updates[channel] = await encryptSnapshot(data[channel], key, this.ports.userId, channel, expected[channel] + 1);
+        }
+        this.check();
       }
       // Even when no content changed, the server checks the revisions atomically.
       const revisions = await this.ports.commitRemote(expected, updates, this.controller.signal);

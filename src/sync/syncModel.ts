@@ -1,7 +1,7 @@
 import type { Procedure, StoneDetails } from '../lib/types';
 
 export const SHARED_FIELDS = [
-  'id', 'fecha', 'categoria', 'procedimiento', 'abordaje', 'duracion', 'rol',
+  'id', 'fecha', 'estado', 'notas', 'nota_conocida', 'notas_revisadas', 'categoria', 'procedimiento', 'abordaje', 'duracion', 'rol',
   'cirujano_senior', 'primer_ayudante', 'segundo_ayudante', 'complicaciones',
   'otro_especificar', 'created_at', 'updated_at', 'deleted_at',
 ] as const;
@@ -12,7 +12,7 @@ export type SyncData = Record<string, Entries>;
 export interface ChannelBaseline { revision: number; hashes: Record<string, string> }
 export interface Baseline { version: 1; channels: Record<string, ChannelBaseline> }
 export interface LocalSnapshot { data: SyncData; baseline: Baseline | null; stamp: number; session: number }
-export interface Conflict { channel: string; id: string; local: unknown; remote: unknown; localHash: string; remoteHash: string; caseLabel?: string }
+export interface Conflict { channel: string; id: string; local: unknown; remote: unknown; localHash: string; remoteHash: string; caseLabel?: string; localLabel?: string; remoteLabel?: string }
 export interface Resolution { localHash: string; remoteHash: string; choice: 'local' | 'remote' }
 export type Resolutions = Map<string, Resolution>;
 
@@ -37,7 +37,9 @@ function boolean(value: unknown, nullable = false): void {
 }
 export function sharedProcedure(procedure: Procedure): SharedProcedure {
   // An explicit allowlist is also the wire format: never spread a local record here.
-  return Object.fromEntries(SHARED_FIELDS.map(key => [key, procedure[key]])) as unknown as SharedProcedure;
+  const normalized = { ...procedure, estado: procedure.estado ?? 'realizada', notas: procedure.notas ?? null,
+    nota_conocida: procedure.nota_conocida ?? !!procedure.notas , notas_revisadas: procedure.notas_revisadas ?? false };
+  return Object.fromEntries(SHARED_FIELDS.map(key => [key, normalized[key]])) as unknown as SharedProcedure;
 }
 export function casesFromLocal(procedures: Procedure[], stones: StoneDetails[]): Entries {
   const byId = new Map(stones.map(item => [item.procedure_id, item]));
@@ -53,8 +55,14 @@ export function validateCases(input: unknown): Entries {
   const entries = object(input);
   const normalized = Object.entries(entries).map(([id, value]) => {
     const item = object(value);
-    const p = object(item.procedure);
-    if (Object.keys(item).sort().join() !== 'procedure,stone' || Object.keys(p).sort().join() !== [...SHARED_FIELDS].sort().join() || p.id !== id || !id.trim()) throw new Error('La copia contiene un caso no válido.');
+    const original = object(item.procedure);
+    const expected = [...SHARED_FIELDS].sort().join();
+    const legacy = SHARED_FIELDS.filter(key => !['estado', 'notas', 'nota_conocida', 'notas_revisadas'].includes(key)).sort().join();
+    const keys = Object.keys(original).sort().join();
+    if (Object.keys(item).sort().join() !== 'procedure,stone' || (keys !== expected && keys !== legacy) || original.id !== id || !id.trim()) throw new Error('La copia contiene un caso no válido.');
+    const p = keys === legacy ? { ...original, estado: 'realizada', notas: null, nota_conocida: false, notas_revisadas: false } : original;
+    if (p.estado !== 'programada' && p.estado !== 'realizada') throw new Error('Estado de cirugía no válido.');
+    string(p.notas, true); boolean(p.nota_conocida); boolean(p.notas_revisadas);
     for (const key of ['id', 'fecha', 'categoria', 'procedimiento', 'abordaje', 'rol']) string(p[key]);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(p.fecha as string) || new Date(`${p.fecha}T00:00:00Z`).toISOString().slice(0, 10) !== p.fecha) throw new Error('Fecha de cirugía no válida.');
     for (const key of ['cirujano_senior', 'primer_ayudante', 'segundo_ayudante', 'complicaciones', 'otro_especificar']) string(p[key], true);
@@ -72,7 +80,7 @@ export function validateCases(input: unknown): Entries {
       if (Object.keys(raw).sort().join() !== 'nlpc,rirs,urs') throw new Error('Combinación de litiasis no válida.');
       for (const key of ['urs', 'rirs', 'nlpc']) boolean(raw[key]);
     }
-    return [id, item];
+    return [id, { ...item, procedure: p }];
   });
   return JSON.parse(JSON.stringify(Object.fromEntries(normalized))) as Entries;
 }

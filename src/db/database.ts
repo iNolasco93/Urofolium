@@ -221,7 +221,9 @@ function readLegacyWeb() {
 }
 
 function normalizeLegacyProcedure(row: Record<string, unknown>) {
-  return { ...row, primer_ayudante: row.primer_ayudante ?? null };
+  return { ...row, primer_ayudante: row.primer_ayudante ?? null,
+    nota_conocida: row.nota_conocida == null ? undefined : row.nota_conocida === true || row.nota_conocida === 1,
+    notas_revisadas: row.notas_revisadas == null ? undefined : row.notas_revisadas === true || row.notas_revisadas === 1 };
 }
 
 function normalizeLegacyStone(row: Record<string, unknown>) {
@@ -238,7 +240,7 @@ function validateLegacy(procedures: unknown, stoneDetails: unknown, userId: stri
     app: 'UroFolium', backupVersion: 3, createdAt: new Date().toISOString(),
     user: { supabaseUserId: userId, email: 'local@migration.invalid' },
     device: { platform: Capacitor.getPlatform(), appVersion: '1.0.0', label: 'Migración local' },
-    schema: { version: CURRENT_SCHEMA_VERSION }, data: { procedures, stoneDetails },
+    schema: { version: 3 }, data: { procedures, stoneDetails },
   }, { userId, maxBackupVersion: 3, maxSchemaVersion: CURRENT_SCHEMA_VERSION });
   return { procedures: payload.data.procedures, stoneDetails: payload.data.stoneDetails ?? [] };
 }
@@ -251,8 +253,8 @@ async function runMigrations(connection: SQLiteDBConnection): Promise<void> {
   } catch { /* A new database has no metadata table yet. */ }
   for (const migration of MIGRATIONS) {
     if (migration.version <= currentVersion) continue;
-    await connection.execute(migration.sql);
-    await connection.run('INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)', ['schema_version', String(migration.version)]);
+    // Schema changes and the version marker must commit in the same SQLite transaction.
+    await connection.execute(`${migration.sql}\nINSERT OR REPLACE INTO app_meta (key, value) VALUES ('schema_version', '${migration.version}');`, true);
   }
 }
 
@@ -307,17 +309,21 @@ function mergeState(state: WebState, procedures: Procedure[], stones: StoneDetai
   state.meta.last_data_changed_at = new Date().toISOString();
 }
 
-const procedureColumns = ['id', 'fecha', 'categoria', 'procedimiento', 'abordaje', 'duracion', 'rol', 'cirujano_senior', 'primer_ayudante', 'segundo_ayudante', 'complicaciones', 'otro_especificar', 'created_at', 'updated_at', 'deleted_at'] as const;
+const procedureColumns = ['id', 'fecha', 'estado', 'nota_conocida', 'notas_revisadas', 'categoria', 'procedimiento', 'abordaje', 'duracion', 'rol', 'cirujano_senior', 'primer_ayudante', 'segundo_ayudante', 'complicaciones', 'notas', 'otro_especificar', 'created_at', 'updated_at', 'deleted_at'] as const;
 const stoneColumns = ['procedure_id', 'lateralidad', 'procedimiento_raw', 'nefromax_fr', 'amplatz_fr', 'enhebrado', 'tamanio_mm', 'tutor_interno', 'drenaje_nefrostomico', 'sonda_fr', 'etiqueta_drenaje', 'stonefree', 'created_at', 'updated_at'] as const;
 function insertStatement(table: string, columns: readonly string[]): string {
   return `INSERT INTO ${table} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')}) ON CONFLICT(${columns[0]}) DO UPDATE SET ${columns.slice(1).map(column => `${column}=excluded.${column}`).join(',')}`;
 }
 function dataStatements(procedures: Procedure[], stones: StoneDetails[]): capSQLiteSet[] {
   return [
-    ...procedures.map(procedure => ({ statement: insertStatement('procedures', procedureColumns), values: procedureColumns.map(column => procedure[column] ?? null) })),
+    ...procedures.map(procedure => ({ statement: insertStatement('procedures', procedureColumns), values: procedureColumns.map(column => column === 'estado' ? procedure[column] ?? 'realizada' : column === 'nota_conocida' || column === 'notas_revisadas' ? Number(procedure[column] ?? false) : procedure[column] ?? null) })),
     ...stones.map(stone => ({ statement: insertStatement('stone_details', stoneColumns), values: stoneColumns.map(column => column === 'procedimiento_raw' ? JSON.stringify(stone[column]) : typeof stone[column] === 'boolean' ? Number(stone[column]) : stone[column] ?? null) })),
     { statement: 'INSERT OR REPLACE INTO app_meta (key,value) VALUES (?,?)', values: ['last_data_changed_at', new Date().toISOString()] },
   ];
+}
+/** Internal native write, called while the case write queue is held. */
+export async function upsertNativeProcedures(procedures: Procedure[]): Promise<void> {
+  await getDB().executeSet(dataStatements(procedures, []), true);
 }
 export function replaceDatabaseContents(procedures: Procedure[], stoneDetails: StoneDetails[]): Promise<void> {
   return runLocalWrite(getDatabaseOwner(), () => replaceDatabaseContentsUnlocked(procedures, stoneDetails));

@@ -1,3 +1,4 @@
+import { fechaLocal } from './fechas';
 import type { Procedure } from './types';
 import { decodeProcedureDetails } from './procedureDetails';
 import { CATEGORIAS, getAbordajeFijo } from './categorias';
@@ -129,7 +130,7 @@ export function migrateProcedureCatalog(procedure: Procedure, now = new Date().t
     categoria = LEGACY_CATEGORY_BY_PROCEDURE[procedimiento] ?? categoria;
   }
 
-  const fixedApproach = getAbordajeFijo(categoria, procedimiento);
+  const fixedApproach = procedure.estado === 'programada' ? null : getAbordajeFijo(categoria, procedimiento);
   const canonicalLegacyApproach = canonicalApproach(procedure.abordaje);
   const legacyApproach = canonicalLegacyApproach === 'Transvaginal' ? 'Vaginal' : canonicalLegacyApproach;
   const legacyForcedApproach = normalizeCatalogKey(procedure.procedimiento) === normalizeCatalogKey('Adenomectomía suprapúbica')
@@ -157,6 +158,7 @@ export function getAutomaticCatalogMigrationUpdates(
 
 export function getMigrationReviewCases(procedures: Procedure[]): MigrationReviewCase[] {
   return procedures.flatMap(procedure => {
+    if (procedure.estado === 'programada') return [];
     const problemas: string[] = [];
     const migrated = migrateProcedureCatalog(procedure, procedure.updated_at);
     const canonical = migrated.procedimiento;
@@ -164,6 +166,10 @@ export function getMigrationReviewCases(procedures: Procedure[]): MigrationRevie
     let procedimientoSugerido = migrated.procedimiento;
     let abordajeSugerido = migrated.abordaje;
     const acciones: string[] = [];
+    if (procedure.fecha > fechaLocal()) {
+      problemas.push('La fecha de esta cirugía realizada es futura.');
+      acciones.push('Revisar la fecha o marcarla como programada.');
+    }
 
     if (isLegacyCategory(migrated.categoria)) {
       problemas.push(isOtherProcedure(migrated.procedimiento)

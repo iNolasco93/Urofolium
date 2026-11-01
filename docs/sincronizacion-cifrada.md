@@ -4,7 +4,7 @@ El diario se vincula a la cuenta de Supabase. En el primer dispositivo, después
 
 Los registros existentes permanecen en el dispositivo. La primera sincronización añade los identificadores que falten; nunca interpreta una ausencia como un borrado. Si un mismo identificador contiene cambios incompatibles, la aplicación muestra ambas versiones y permite conservar una. No se deduplican automáticamente registros con distintos identificadores.
 
-Cada entrada contiene la cirugía y todos sus detalles de litiasis, incluido `stonefree`. Se selecciona el caso completo en un conflicto. Un borrado usa `deleted_at`, conserva la entrada y se propaga a los dispositivos vinculados. Las marcas de borrado no se purgan. Restaurar una copia antigua puede recuperar casos borrados: se trata como una edición y puede requerir resolver diferencias. Los casos remotos ausentes de esa copia vuelven a incorporarse.
+Cada entrada contiene el estado, las notas, la cirugía y todos sus detalles de litiasis, incluido `stonefree`. Las programadas se excluyen de las estadísticas hasta completarlas. Se selecciona el caso completo en un conflicto. Un borrado usa `deleted_at`, conserva la entrada y se propaga a los dispositivos vinculados. Las marcas de borrado no se purgan. Restaurar una copia antigua puede recuperar casos borrados: se trata como una edición y puede requerir resolver diferencias. Los casos remotos ausentes de esa copia vuelven a incorporarse.
 
 La aplicación sincroniza al abrir los datos, al guardar, al recuperar conexión, al volver a primer plano y cada minuto mientras está visible. Se pueden guardar cambios sin conexión después de acceder a la aplicación y desbloquear los datos. No se garantiza el arranque sin conexión de una instalación web ni la ejecución con la app cerrada. Ante errores de red, clave o almacenamiento, conserva los datos locales y muestra el estado pendiente.
 
@@ -24,3 +24,5 @@ La sincronización no sustituye un backup: propaga también errores y borrados. 
 La migración `supabase/migrations/20261030000000_encrypted_shared_diary.sql` debe aplicarse antes de publicar el cliente. RLS permite leer únicamente la fila propia; las escrituras directas están revocadas y pasan por la función con revisión esperada. No modifica las tablas clínicas existentes.
 
 `npm test` cubre cifrado, vinculación, colisiones, conflictos, borrados, recuperación tras fallos, cancelación de sesiones y almacenamiento web/SQLite transaccional. La suite SQLite usa un adaptador de prueba; no sustituye una comprobación en dispositivos iOS y Android reales.
+
+Las versiones anteriores deben actualizarse para leer los casos con estado y notas. Sus datos locales se conservan si aún no pueden leer la copia nueva.

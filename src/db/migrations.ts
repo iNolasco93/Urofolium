@@ -58,6 +58,15 @@ export const MIGRATIONS: { version: number; sql: string }[] = [
       ALTER TABLE procedures ADD COLUMN primer_ayudante TEXT;
     `,
   },
+  {
+    version: 4,
+    sql: `
+      ALTER TABLE procedures ADD COLUMN estado TEXT NOT NULL DEFAULT 'realizada';
+      ALTER TABLE procedures ADD COLUMN nota_conocida INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE procedures ADD COLUMN notas_revisadas INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE procedures ADD COLUMN notas TEXT;
+    `,
+  },
 ];
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

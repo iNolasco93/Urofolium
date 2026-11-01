@@ -124,3 +124,24 @@ test('a remote rollback is blocked instead of silently replacing current data', 
   server.accounts.set('account-a', old); await a.engine.sync();
   assert.equal(a.status.phase, 'error'); assert.ok(a.data.cases.new);
 });
+
+test('a version-1 case is upgraded remotely and stale older writers cannot replace it', async () => {
+  const server = new Server();
+  const p = surgery() as Record<string, unknown>;
+  for (const field of ['estado', 'notas', 'nota_conocida', 'notas_revisadas']) delete p[field];
+  const legacy = { 'case-1': { procedure: p, stone: stone() } };
+  const oldEnvelope = await encryptSnapshot(legacy, KEY, 'account-a', 'cases', 1);
+  server.accounts.set('account-a', { cases: { revision: 1, envelope: oldEnvelope } });
+  const client = new Device(server); client.key = KEY;
+  await client.engine.sync();
+  assert.equal(client.status.phase, 'ready');
+  const current = server.accounts.get('account-a')!.cases!;
+  assert.equal(current.revision, 2);
+  const decoded = await decryptSnapshot(current.envelope, KEY, 'account-a', 'cases', 2) as Record<string, any>;
+  assert.equal(decoded['case-1'].procedure.estado, 'realizada');
+  assert.equal(decoded['case-1'].procedure.nota_conocida, false);
+  // Existing clients reject fields outside the original exact wire schema.
+  const oldKeys = Object.keys(p).sort().join();
+  assert.notEqual(Object.keys(decoded['case-1'].procedure).sort().join(), oldKeys);
+  assert.equal(await server.commit('account-a', { cases: 1 }, { cases: oldEnvelope }), null);
+});

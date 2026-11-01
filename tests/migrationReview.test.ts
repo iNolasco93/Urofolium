@@ -88,3 +88,15 @@ test('ambiguous Others and missing cystectomy diversion require manual correctio
   assert.match(reviews[0].accionRequerida, /Seleccionar la categoría/);
   assert.ok(reviews[1].problemas.some(problem => problem.includes('derivación urinaria')));
 });
+
+
+test('legacy future dates are flagged, while incomplete scheduled cases are not migration errors', () => {
+  const future = new Date(); future.setFullYear(future.getFullYear() + 1);
+  const date = `${future.getFullYear()}-${String(future.getMonth() + 1).padStart(2, '0')}-${String(future.getDate()).padStart(2, '0')}`;
+  const scheduled = { ...BASE, id: 'scheduled', estado: 'programada' as const, fecha: date,
+    categoria: 'Patología vesical', procedimiento: 'Cistectomía radical', abordaje: '', rol: '', otro_especificar: null };
+  assert.deepEqual(getMigrationReviewCases([scheduled]), []);
+  const legacy = getMigrationReviewCases([{ ...BASE, id: 'future', fecha: date }]);
+  assert.equal(legacy.length, 1);
+  assert.match(legacy[0].problemas.join(' '), /fecha.*futura/i);
+});

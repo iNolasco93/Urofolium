@@ -13,7 +13,7 @@ import { migrateProcedureCatalog } from '../lib/migrationReview';
 import type { BackupPayload, BackupInfo } from '../lib/types';
 
 const APP_VERSION = '1.0.0';
-const BACKUP_VERSION = 3;
+const BACKUP_VERSION = 4;
 const LATEST_FILENAME = `${APP_CONFIG.backupPrefix}-backup-latest.json.enc`;
 const AUTO_BACKUP_INTERVAL_HOURS = 24;
 
@@ -50,7 +50,7 @@ async function buildBackupPayload(): Promise<BackupPayload> {
   if (!user) throw new Error('No hay sesión activa');
   assertDatabaseOwner(user.id);
   return runLocalWrite(user.id, async () => {
-    const procedures = await getAllProcedures();
+    const procedures = (await getAllProcedures()).map(p => ({ ...p, estado: p.estado ?? 'realizada' as const, notas: p.notas ?? null }));
     assertDatabaseOwner(user.id);
     const procedureIds = new Set(procedures.map(procedure => procedure.id));
     const stoneDetails = (await getAllStoneDetails()).filter(details => procedureIds.has(details.procedure_id));

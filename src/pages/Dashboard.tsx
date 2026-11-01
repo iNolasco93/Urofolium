@@ -1,7 +1,8 @@
+import { fechaLocal } from '../lib/fechas';
 import { useRemoteRevision } from '../sync/syncManager';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getAllProcedures, countProcedures } from '../db/procedureRepository';
+import { getAllProcedures } from '../db/procedureRepository';
 import type { AuthUser, Procedure } from '../lib/types';
 import SafetyNotice from '../components/SafetyNotice';
 
@@ -18,29 +19,26 @@ function getGreetingName(user: AuthUser): string {
 export default function Dashboard({ user }: DashboardProps) {
   const remoteRevision = useRemoteRevision();
   const [procedures, setProcedures] = useState<Procedure[]>([]);
-  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
     (async () => {
-      const [all, count] = await Promise.all([
-        getAllProcedures(),
-        countProcedures(),
-      ]);
+      const all = await getAllProcedures();
       setProcedures(all);
-      setTotal(count);
       setLoading(false);
     })();
   }, [remoteRevision]);
 
   if (loading) return <div style={{ textAlign: 'center', padding: 40, color: 'var(--text2)' }}>Cargando...</div>;
 
-  const comoCirujano = procedures.filter(p => p.rol === 'Cirujano principal').length;
-  const comoAyudante = procedures.filter(p => p.rol?.toLowerCase().includes('ayudante')).length;
-  const ultimos = procedures.slice(0, 5);
+  const realizadas = procedures.filter(p => p.estado !== 'programada');
+  const pendientes = procedures.filter(p => p.estado === 'programada').sort((a, b) => a.fecha.localeCompare(b.fecha));
+  const comoCirujano = realizadas.filter(p => p.rol === 'Cirujano principal').length;
+  const comoAyudante = realizadas.filter(p => p.rol?.toLowerCase().includes('ayudante')).length;
+  const ultimos = realizadas.slice(0, 5);
   const metrics = [
-    { label: 'Total', value: total, color: 'var(--primary)' },
+    { label: 'Total', value: realizadas.length, color: 'var(--primary)' },
     { label: 'Cirujano', value: comoCirujano, color: 'var(--accent)' },
     { label: 'Ayudante', value: comoAyudante, color: 'var(--teal)' },
   ];
@@ -60,6 +58,17 @@ export default function Dashboard({ user }: DashboardProps) {
           </div>
         ))}
       </div>
+
+      {pendientes.length > 0 && <section style={{ marginBottom: 24 }}>
+        <h3 style={{ fontSize: 16, marginBottom: 12 }}>Cirugías pendientes</h3>
+        {pendientes.map(p => <div className="card" key={p.id} style={{ marginBottom: 8 }}>
+          <strong>{p.procedimiento}</strong>
+          <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--text2)' }}>{p.fecha < fechaLocal() ? 'Pendiente de completar' : p.fecha === fechaLocal() ? 'Hoy' : 'Programada'}</span>
+          <p style={{ fontSize: 13, margin: '6px 0' }}>{p.fecha} · {p.categoria}{p.abordaje ? ` · ${p.abordaje}` : ''}</p>
+          {p.notas && <p style={{ whiteSpace: 'pre-wrap', fontSize: 13 }}>{p.notas}</p>}
+          <button className="btn-primary" onClick={() => navigate(`/editar/${p.id}?completar=1`)}>Completar cirugía</button>
+        </div>)}
+      </section>}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <h3 style={{ fontSize: 16 }}>Últimos procedimientos</h3>
@@ -92,9 +101,9 @@ export default function Dashboard({ user }: DashboardProps) {
               </div>
             </div>
           ))}
-          {total > 5 && (
+          {realizadas.length > 5 && (
             <button className="btn-ghost" onClick={() => navigate('/listado')} style={{ marginTop: 4 }}>
-              Ver todos ({total})
+              Ver todos ({realizadas.length})
             </button>
           )}
         </div>

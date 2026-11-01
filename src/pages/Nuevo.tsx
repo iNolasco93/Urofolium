@@ -1,3 +1,4 @@
+import { fechaLocal } from '../lib/fechas';
 import { canonical } from '../sync/syncMerge';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -58,7 +59,10 @@ const STONE_EMPTY = {
 };
 
 const EMPTY = {
-  fecha: new Date().toISOString().slice(0, 10),
+  fecha: fechaLocal(),
+  estado: 'realizada' as 'programada' | 'realizada',
+  nota_conocida: false,
+  notas_revisadas: false,
   categoria: '',
   procedimiento: '',
   abordaje: '',
@@ -69,6 +73,7 @@ const EMPTY = {
   segundo_ayudante: '',
   complicaciones: false,
   complicaciones_detalle: '',
+  notas: '',
   otro_especificar: '',
   derivacion_urinaria: '',
   derivacion_otra: '',
@@ -320,7 +325,7 @@ export default function Nuevo() {
   const navigate = useNavigate();
   const isEdit = !!id;
   const originalCase = useRef<string | null>(null);
-  const [form, setForm] = useState({ ...EMPTY });
+  const [form, setForm] = useState(() => ({ ...EMPTY, fecha: fechaLocal() }));
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
@@ -367,6 +372,9 @@ export default function Nuevo() {
         ...EMPTY,
         ...stoneForm,
         fecha: String(data.fecha).slice(0, 10),
+        estado: data.estado === 'programada' && new URLSearchParams(window.location.search).get('completar') !== '1' ? 'programada' : 'realizada',
+        nota_conocida: data.nota_conocida ?? !!data.notas,
+        notas_revisadas: data.notas_revisadas ?? false,
         categoria: data.categoria || '',
         procedimiento: formProcedure,
         grupo_prostatico: data.categoria === PATOLOGIA_PROSTATICA
@@ -382,6 +390,7 @@ export default function Nuevo() {
         segundo_ayudante: data.segundo_ayudante || '',
         complicaciones: tieneComplicaciones,
         complicaciones_detalle: tieneComplicaciones && data.complicaciones !== 'Si' ? data.complicaciones || '' : '',
+        notas: data.notas || '',
         otro_especificar: esOtro
           ? data.procedimiento.replace('Otros: ', '')
           : PROCEDIMIENTOS_TRAUMA.has(parsedProcedure.procedimiento) ? data.otro_especificar || '' : '',
@@ -558,7 +567,17 @@ export default function Nuevo() {
     e.preventDefault();
     setError('');
 
-    if (isLitiasis) {
+    const programada = form.estado === 'programada';
+    const hoy = fechaLocal();
+    const original = originalCase.current ? JSON.parse(originalCase.current) as { procedure?: { fecha?: string; estado?: string } } : null;
+    if ((!programada && form.fecha > hoy) || (programada && form.fecha < hoy && !(original?.procedure?.estado === 'programada' && form.fecha === original.procedure.fecha))) {
+      setError(programada ? 'La fecha programada debe ser hoy o posterior.' : 'La fecha de una cirugía realizada no puede ser futura.');
+      return;
+    }
+    if (isLitiasis && !procedimientoLitiasis) { setError('Selecciona un procedimiento.'); return; }
+    if (!isLitiasis && !form.procedimiento) { setError('Selecciona un procedimiento.'); return; }
+
+    if (isLitiasis && !programada) {
       const stoneError = validateStoneFields();
       if (stoneError) {
         setError(stoneError);
@@ -570,38 +589,38 @@ export default function Nuevo() {
       setError('Especifica el procedimiento.');
       return;
     }
-    if (!isLitiasis && form.procedimiento === 'Cistectomía radical' && !form.derivacion_urinaria) {
+    if (!programada && !isLitiasis && form.procedimiento === 'Cistectomía radical' && !form.derivacion_urinaria) {
       setError('Selecciona el tipo de derivación urinaria.');
       return;
     }
-    if (!isLitiasis && form.procedimiento === 'Cistectomía radical' && form.derivacion_urinaria === 'Otra' && !form.derivacion_otra.trim()) {
+    if (!programada && !isLitiasis && form.procedimiento === 'Cistectomía radical' && form.derivacion_urinaria === 'Otra' && !form.derivacion_otra.trim()) {
       setError('Especifica el tipo de derivación urinaria.');
       return;
     }
-    if (!isLitiasis && form.procedimiento === 'Penectomía' && !form.penectomia_tipo) {
+    if (!programada && !isLitiasis && form.procedimiento === 'Penectomía' && !form.penectomia_tipo) {
       setError('Selecciona si la penectomía es parcial o total.');
       return;
     }
-    if (!isLitiasis && form.procedimiento === 'HoLEP/ThuLEP' && !form.holep_thulep) {
+    if (!programada && !isLitiasis && form.procedimiento === 'HoLEP/ThuLEP' && !form.holep_thulep) {
       setError('Selecciona HoLEP o ThuLEP.');
       return;
     }
-    if (!isLitiasis && form.procedimiento === 'Biopsia testicular' && !form.tecnica_especificar) {
+    if (!programada && !isLitiasis && form.procedimiento === 'Biopsia testicular' && !form.tecnica_especificar) {
       setError('Selecciona la técnica de biopsia testicular.');
       return;
     }
 
-    const teamError = validateTeamFields();
+    const teamError = programada ? null : validateTeamFields();
     if (teamError) {
       setError(teamError);
       return;
     }
 
-    const procFinal = buildStoredProcedure(form);
-    const abordajeFinal = isLitiasis
+    const procFinal = programada && !isLitiasis && !['Otros'].includes(form.procedimiento) ? form.procedimiento : buildStoredProcedure(form);
+    const abordajeFinal = programada ? form.abordaje : isLitiasis
       ? calcularAbordajeLitiasis(procFinal, form.rol) || form.abordaje
       : form.abordaje;
-    if (!abordajeFinal) {
+    if (!programada && !abordajeFinal) {
       setError('Selecciona el abordaje.');
       return;
     }
@@ -610,6 +629,9 @@ export default function Nuevo() {
 
     const payload: ProcedureDraft = {
       fecha: form.fecha,
+      estado: form.estado,
+      nota_conocida: form.nota_conocida || !!form.notas.trim(),
+      notas_revisadas: form.notas_revisadas,
       categoria: form.categoria,
       procedimiento: procFinal,
       abordaje: abordajeFinal,
@@ -618,7 +640,8 @@ export default function Nuevo() {
       cirujano_senior: form.cirujano_senior.trim() || null,
       primer_ayudante: requierePrimerAyudante(form.rol) ? form.primer_ayudante.trim() || null : null,
       segundo_ayudante: muestraSegundoAyudante(form.rol) ? form.segundo_ayudante.trim() || null : null,
-      complicaciones: form.complicaciones ? form.complicaciones_detalle.trim() || 'Si' : 'No',
+      complicaciones: programada ? null : form.complicaciones ? form.complicaciones_detalle.trim() || 'Si' : 'No',
+      notas: form.notas.trim() || null,
       otro_especificar: buildStoredDetail(form),
     };
 
@@ -645,7 +668,7 @@ export default function Nuevo() {
         ...payload, id: procedureId, created_at: existing?.created_at ?? now,
         updated_at: now, deleted_at: null,
       };
-      const details: StoneDetails[] = isLitiasis ? [{
+      const details: StoneDetails[] = programada ? (isLitiasis && oldStone ? [oldStone] : []) : isLitiasis ? [{
         ...buildStonePayload(procedureId), created_at: oldStone?.created_at ?? now, updated_at: now,
       }] : [];
       await mergeDatabaseContents([procedure], details, isLitiasis ? [] : [procedureId], stamp);
@@ -655,7 +678,7 @@ export default function Nuevo() {
       setSuccess(true);
       setTimeout(() => {
         setSuccess(false);
-        if (!isEdit) setForm({ ...EMPTY, fecha: new Date().toISOString().slice(0, 10) });
+        if (!isEdit) setForm({ ...EMPTY, fecha: fechaLocal() });
         else navigate('/listado');
       }, 1500);
     } catch (err) {
@@ -689,7 +712,50 @@ export default function Nuevo() {
       {success && <div className="success-toast">Guardado correctamente</div>}
       {error && <div style={{ color: 'var(--danger)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
 
-      <form onSubmit={handleSubmit}>
+      <div className="form-group">
+        <label htmlFor="estado-cirugia">Estado de la cirugía</label>
+        <select id="estado-cirugia" value={form.estado} onChange={e => set('estado', e.target.value)}>
+          <option value="realizada">Realizada</option><option value="programada">Programada</option>
+        </select>
+      </div>
+      {form.estado === 'programada' ? <form onSubmit={handleSubmit}>
+        <div className="form-group"><label htmlFor="fecha-programada">Fecha prevista *</label>
+          <input id="fecha-programada" type="date" value={form.fecha} onChange={e => set('fecha', e.target.value)} required /></div>
+        <div className="form-group"><label htmlFor="categoria-programada">Categoría *</label>
+          <select id="categoria-programada" value={form.categoria} onChange={e => handleCategoriaChange(e.target.value)} required>
+            <option value="">Seleccionar categoría</option>{categoriasDisponibles.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+          </select></div>
+        {form.categoria === PATOLOGIA_PROSTATICA ? <>
+          <div className="form-group"><label htmlFor="grupo-prostatico-programado">Procedimiento *</label>
+            <select id="grupo-prostatico-programado" value={form.grupo_prostatico} onChange={e => handleGrupoProstaticoChange(e.target.value)} required>
+              <option value="">Seleccionar procedimiento</option><option value={CIRUGIA_HBP}>{CIRUGIA_HBP}</option>
+              {OTROS_PROCEDIMIENTOS_PROSTATICOS.map(value => <option key={value} value={value}>{value}</option>)}
+            </select></div>
+          {form.grupo_prostatico === CIRUGIA_HBP && <div className="form-group"><label htmlFor="procedimiento-programado">Técnica *</label>
+            <select id="procedimiento-programado" value={form.procedimiento} onChange={e => handleProcedimientoChange(e.target.value)} required>
+              <option value="">Seleccionar técnica</option>{PROCEDIMIENTOS_HBP.map(value => <option key={value} value={value}>{value}</option>)}
+            </select></div>}
+        </> : <div className="form-group"><label htmlFor="procedimiento-programado">Procedimiento *</label>
+          <select id="procedimiento-programado" value={isLitiasis ? procedimientoLitiasis : form.procedimiento} disabled={!form.categoria} required onChange={e => {
+            const value = e.target.value;
+            if (isLitiasis) {
+              const raw = parseStoneProcedureRaw(value);
+              setForm(f => ({ ...f, procedimiento: value, proc_urs: raw.urs, proc_rirs: raw.rirs, proc_nlpc: raw.nlpc, abordaje: '' }));
+            } else handleProcedimientoChange(value);
+          }}>
+            <option value="">Seleccionar procedimiento</option>
+            {(isLitiasis ? ['URS', 'RIRS', 'NLPC', 'URS + RIRS', 'URS + NLPC', 'ECIRS', 'Cistolitotricia', 'Cistolitotomía'] : procedimientosDisponibles).map(value => <option key={value} value={value}>{value}</option>)}
+          </select></div>}
+        {form.procedimiento === 'Otros' && <div className="form-group"><label htmlFor="otros-programada">Descripción *</label><input id="otros-programada" value={form.otro_especificar} onChange={e => set('otro_especificar', e.target.value)} required /></div>}
+        <div className="form-group"><label htmlFor="abordaje-programada">Abordaje (opcional)</label>
+          <select id="abordaje-programada" value={form.abordaje} disabled={!form.procedimiento && !procedimientoLitiasis} onChange={e => set('abordaje', e.target.value)}>
+            <option value="">Sin indicar</option>{(isLitiasis ? (procedimientoLitiasis === 'ECIRS' ? ['Endoscópico', 'Percutáneo'] : [calcularAbordajeLitiasis(procedimientoLitiasis, '')].filter(Boolean)) : abordajesDisponibles).map(value => <option key={value} value={value}>{value}</option>)}
+          </select></div>
+        <div className="form-group"><label htmlFor="notas-programada">Notas (opcional)</label>
+          <textarea id="notas-programada" value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value, nota_conocida: true }))} placeholder="Detalles sin datos identificativos" /></div>
+        <button type="submit" className="btn-primary" disabled={loading}>{loading ? 'Guardando...' : 'Guardar cirugía programada'}</button>
+        {isEdit && <button type="button" className="btn-ghost" onClick={() => set('estado', 'realizada')}>Completar cirugía</button>}
+      </form> : <form onSubmit={handleSubmit}>
         <div className="form-group">
           <p style={{ fontWeight: 500, fontSize: 14, marginBottom: 6 }}>Fecha *</p>
           <input type="date" value={form.fecha} onChange={e => set('fecha', e.target.value)} required />
@@ -1192,13 +1258,18 @@ export default function Nuevo() {
           </div>
         )}
 
+        <div className="form-group">
+          <p style={{ fontWeight: 500, fontSize: 14, marginBottom: 6 }}>Notas</p>
+          <textarea value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value, nota_conocida: true }))} placeholder="Opcional, sin datos identificativos" />
+        </div>
+
         <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
           <button type="submit" className="btn-primary" style={{ flex: 1 }} disabled={loading}>
             {loading ? 'Guardando...' : isEdit ? 'Guardar cambios' : 'Guardar registro'}
           </button>
           {isEdit && <button type="button" className="btn-ghost" onClick={() => navigate('/listado')}>Cancelar</button>}
         </div>
-      </form>
+      </form>}
     </div>
   );
 }

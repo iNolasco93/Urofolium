@@ -10,10 +10,10 @@ export const PASSPHRASE = 'synthetic-local-passphrase';
 const time = '2026-10-18T10:00:00.000Z';
 
 export function procedure(id = 'synthetic-procedure'): Procedure {
-  return { id, fecha: '2026-10-18', categoria: 'Litiasis',
+  return { id, fecha: '2026-10-18', estado: 'realizada', nota_conocida: false, notas_revisadas: false, categoria: 'Litiasis',
     procedimiento: 'URS', abordaje: 'Endoscópico', duracion: 30, rol: 'Cirujano',
     cirujano_senior: null, primer_ayudante: null, segundo_ayudante: null,
-    complicaciones: null, otro_especificar: null,
+    complicaciones: null, notas: null, otro_especificar: null,
     created_at: time, updated_at: time, deleted_at: null };
 }
 
@@ -59,7 +59,21 @@ class NativeConnection {
     this.registry = registry;
   }
   async open() {}
-  async execute(sql: string) { this.database.exec(sql); return {}; }
+  async execute(sql: string, transaction = true) {
+    if (transaction) this.database.exec('BEGIN TRANSACTION');
+    try {
+      this.database.exec(sql);
+      if (this.registry.failNextMigration && sql.includes('ADD COLUMN estado')) {
+        this.registry.failNextMigration = false;
+        throw new Error('Synthetic migration failure');
+      }
+      if (transaction) this.database.exec('COMMIT');
+    } catch (error) {
+      if (transaction) this.database.exec('ROLLBACK');
+      throw error;
+    }
+    return {};
+  }
   async run(sql: string, values: unknown[] = []) { this.database.prepare(sql).run(...values as []); return {}; }
   async query(sql: string, values: unknown[] = []) { return { values: this.database.prepare(sql).all(...values as []) }; }
   async executeSet(set: { statement: string; values: unknown[] }[], transaction: boolean) {
@@ -87,6 +101,7 @@ class NativeSQLite {
   creationArguments: { name: string; encrypted: boolean; mode: string }[] = [];
   transactionFlags: boolean[] = [];
   failNextTransaction = false;
+  failNextMigration = false;
   secret: string | null = null;
   afterCreate?: (name: string) => void | Promise<void>;
   async isDatabase(name: string) { return { result: this.databases.has(name) }; }
@@ -166,11 +181,11 @@ export function seedLegacyWeb(harness: Awaited<ReturnType<typeof createHarness>>
 
 export async function seedLegacyNative(harness: Awaited<ReturnType<typeof createHarness>>) {
   const legacy = await harness.sqlite.createConnection('urofolium', false, 'no-encryption');
-  for (const migration of MIGRATIONS) await legacy.execute(migration.sql);
+  for (const migration of MIGRATIONS.filter(item => item.version <= 3)) await legacy.execute(migration.sql);
   await legacy.run('INSERT OR REPLACE INTO app_meta (key,value) VALUES (?,?)', ['schema_version', '3']);
   for (const [table, row] of [['procedures', procedure()], ['stone_details', stone()]] as const) {
-    const columns = Object.keys(row);
-    const values = Object.values(row).map(value => typeof value === 'boolean' ? Number(value) : value && typeof value === 'object' ? JSON.stringify(value) : value);
+    const columns = Object.keys(row).filter(key => !['estado', 'nota_conocida', 'notas_revisadas'].concat(['notas']).includes(key));
+    const values = columns.map(key => row[key as keyof typeof row]).map(value => typeof value === 'boolean' ? Number(value) : value && typeof value === 'object' ? JSON.stringify(value) : value);
     await legacy.run(`INSERT INTO ${table} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`, values);
   }
   await harness.sqlite.closeConnection('urofolium');

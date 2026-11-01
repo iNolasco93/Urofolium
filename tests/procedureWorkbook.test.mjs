@@ -18,9 +18,9 @@ await build({
 const { createProcedureWorkbook, getProcedureWorkbookColumns, parseProcedureWorkbook, readProcedureWorkbook, materializeProcedureImport } = createRequire(import.meta.url)(bundle);
 const timestamp = '2026-07-01T09:10:11.123Z';
 const procedure = {
-  id: 'case-1', fecha: '2026-07-01', categoria: 'Litiasis', procedimiento: 'ECIRS',
+  id: 'case-1', fecha: '2026-07-01', estado: 'realizada', nota_conocida: true, notas_revisadas: false, categoria: 'Litiasis', procedimiento: 'ECIRS',
   abordaje: 'Percutáneo', duracion: 0, rol: 'Cirujano principal', cirujano_senior: 'Cirujano sénior',
-  primer_ayudante: null, segundo_ayudante: 'Ayudante de prueba', complicaciones: 'No',
+  primer_ayudante: null, segundo_ayudante: 'Ayudante de prueba', complicaciones: 'No', notas: null,
   otro_especificar: null, created_at: timestamp, updated_at: '2026-07-02T10:11:12.456Z', deleted_at: null,
 };
 const stone = {
@@ -43,12 +43,12 @@ function importWorkbook(book, existing = [], existingStone = []) {
 }
 
 test('workbook columns contain only the UroFolium data model', () => {
-  assert.deepEqual(getProcedureWorkbookColumns().slice(0, 11), [
-    'id', 'fecha', 'categoria', 'procedimiento', 'procedimiento_base',
+  assert.deepEqual(getProcedureWorkbookColumns().slice(0, 12), [
+    'id', 'fecha', 'estado', 'categoria', 'procedimiento', 'procedimiento_base',
     'tipo_derivacion_urinaria', 'tecnica', 'tipo_protesis', 'abordaje', 'duracion', 'rol',
   ]);
   assert.equal(getProcedureWorkbookColumns().includes('referencia'), false);
-  assert.equal(getProcedureWorkbookColumns().includes('notas'), false);
+  assert.equal(getProcedureWorkbookColumns().includes('notas'), true);
   assert.equal(getProcedureWorkbookColumns().includes('seguimiento'), false);
 });
 
@@ -170,4 +170,13 @@ test('invalid values, missing columns and duplicate identifiers are rejected', (
   const headers = ['id', 'fecha', 'categoria', 'procedimiento', 'abordaje', 'rol'];
   const row = ['same-id', '2026-07-01', 'Litiasis', 'RIRS', 'Endoscópico', 'Observador'];
   assert.ok(parseProcedureWorkbook(workbook(headers, [row, row])).errors.some(error => error.includes('id duplicado')));
+});
+
+test('scheduled cases and notes round-trip without a role or approach', () => {
+  const planned = { ...procedure, id: 'planned', estado: 'programada', categoria: 'Patología vesical', procedimiento: 'Cistectomía radical', abordaje: '', rol: '', notas: 'Revisar técnica', otro_especificar: null };
+  const result = importWorkbook(createProcedureWorkbook([planned], []));
+  assert.equal(result.procedures[0].estado, 'programada');
+  assert.equal(result.procedures[0].rol, '');
+  assert.equal(result.procedures[0].abordaje, '');
+  assert.equal(result.procedures[0].notas, 'Revisar técnica');
 });

@@ -44,7 +44,7 @@ export default function EstadisticasPage() {
 
   useEffect(() => {
     Promise.all([getAllProcedures(), getCurrentUser()]).then(([all, currentUser]) => {
-      setProcedures([...all].sort((a, b) => a.fecha.localeCompare(b.fecha)));
+      setProcedures([...all].filter(p => p.estado !== 'programada').sort((a, b) => a.fecha.localeCompare(b.fecha)));
       setResidencyStartMonth(currentUser?.residencyStartMonth ?? null);
       setLoading(false);
     });

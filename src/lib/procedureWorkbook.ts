@@ -1,3 +1,4 @@
+import { fechaLocal } from './fechas';
 import * as XLSX from 'xlsx';
 import type { Procedure, StoneDetails, StoneProcedureRaw } from './types';
 import {
@@ -18,9 +19,9 @@ export interface ProcedureImportRow {
 }
 
 const PROCEDURE_COLUMNS = [
-  'id', 'fecha', 'categoria', 'procedimiento', 'procedimiento_base',
+  'id', 'fecha', 'estado', 'categoria', 'procedimiento', 'procedimiento_base',
   'tipo_derivacion_urinaria', 'tecnica', 'tipo_protesis', 'abordaje', 'duracion', 'rol',
-  'cirujano_senior', 'primer_ayudante', 'segundo_ayudante', 'complicaciones',
+  'cirujano_senior', 'primer_ayudante', 'segundo_ayudante', 'complicaciones', 'notas',
   'otro_especificar', 'created_at', 'updated_at', 'deleted_at',
 ];
 const STONE_COLUMNS = [
@@ -54,6 +55,7 @@ export function createProcedureWorkbook(
     const structured = getProcedureWorkbookFields(procedure.procedimiento, procedure.otro_especificar);
     const values: Record<string, unknown> = {
       ...procedure,
+      estado: procedure.estado ?? 'realizada',
       procedimiento: structured.procedimientoFinal,
       procedimiento_base: structured.procedimientoBase,
       tipo_derivacion_urinaria: structured.tipoDerivacionUrinaria || null,
@@ -206,8 +208,13 @@ export function parseProcedureWorkbook(workbook: XLSX.WorkBook): {
       abordaje: String(source.abordaje ?? '').trim(),
       rol: String(source.rol ?? '').trim(),
     };
+    if (has('estado') && !blank(source.estado)) {
+      const estado = String(source.estado).trim().toLowerCase();
+      if (estado !== 'programada' && estado !== 'realizada') errors.push(`Fila ${index + 2}: estado debe ser programada o realizada.`);
+      else values.estado = estado;
+    }
     for (const field of REQUIRED_FIELDS) {
-      if (!values[field] && field !== 'fecha') errors.push(`Fila ${index + 2}: ${field} vacío.`);
+      if (!values[field] && field !== 'fecha' && !(values.estado === 'programada' && (field === 'abordaje' || field === 'rol'))) errors.push(`Fila ${index + 2}: ${field} vacío.`);
     }
     const id = String(source.id ?? '').trim();
     if (id) {
@@ -228,13 +235,14 @@ export function parseProcedureWorkbook(workbook: XLSX.WorkBook): {
     } else if (parsedProcedure.storedDetail) {
       values.otro_especificar = parsedProcedure.storedDetail;
     }
-    if (parsedProcedure.procedimiento === 'Cistectomía radical' && !values.otro_especificar) {
+    if (values.estado !== 'programada' && parsedProcedure.procedimiento === 'Cistectomía radical' && !values.otro_especificar) {
       errors.push(`Fila ${index + 2}: Cistectomía radical requiere tipo_derivacion_urinaria.`);
     }
     if (has('ayudante') && !blank(source.ayudante)) {
       const field = ['Segundo ayudante', 'Observador'].includes(values.rol) ? 'primer_ayudante' : 'segundo_ayudante';
       if (blank(source[field])) values[field] = textOrNull(source.ayudante);
     }
+    if (has('notas')) { values.notas = textOrNull(source.notas); values.nota_conocida = true; }
     if (has('duracion')) values.duracion = read('duracion', value => parseNumber(value, true));
     for (const field of ['created_at', 'updated_at'] as const) {
       const timestamp = read(field, parseTimestamp);
@@ -287,10 +295,16 @@ export function materializeProcedureImport(
     const id = row.values.id || row.generatedId;
     const existing = byId.get(id);
     const procedureDraft: Procedure = {
+      estado: 'realizada', notas: null, nota_conocida: false, notas_revisadas: false,
       duracion: null, cirujano_senior: null, primer_ayudante: null, segundo_ayudante: null,
       complicaciones: null, otro_especificar: null, deleted_at: null,
       created_at: now, ...existing, updated_at: now, ...row.values, id,
     };
+    const localDay = fechaLocal();
+    if (procedureDraft.estado !== 'programada' && procedureDraft.fecha > localDay &&
+      !(existing && existing.estado !== 'programada' && existing.fecha === procedureDraft.fecha)) {
+      throw new Error(`La cirugía ${id} está marcada como realizada con una fecha futura.`);
+    }
     const procedure = migrateProcedureCatalog(procedureDraft, now);
     if (row.stone === null) removeStoneIds.push(id);
     else if (row.stone !== undefined) {

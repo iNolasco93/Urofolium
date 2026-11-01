@@ -9,7 +9,7 @@ import { getMeta } from '../db/metaRepository';
 import { SyncEngine, EMPTY_STATUS, type SyncStatus } from './syncEngine';
 import { parseBaseline } from './syncModel';
 import { same } from './syncMerge';
-import { commitRemote, joinData, readRemote, splitData, validators } from './syncVariant';
+import { commitRemote, joinData, readRemote, splitData, validators, prepareLocal, reconcile } from './syncVariant';
 import { emitRemoteChange, onDatabaseLock, onLocalChange } from './syncSignals';
 
 const KEY = 'sync_key_v1';
@@ -56,7 +56,7 @@ export function startSync(userId: string): () => void {
     if (session !== getDatabaseSession()) throw new Error('La sesión cambió; vuelve a abrir tus registros.');
   };
   const current = new SyncEngine({
-    userId, validators, assertActive,
+    userId, validators, assertActive, prepareLocal, reconcile,
     getKey: () => getLocalSecret(KEY),
     saveKey: async key => { assertActive(); await setLocalSecret(KEY, key); assertActive(); },
     capture: () => runLocalWrite(userId, async () => {

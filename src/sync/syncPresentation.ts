@@ -5,7 +5,7 @@ export function describeCase(value: unknown): [string, string][] {
   const { procedure: p, stone: s } = value as CaseData;
   const show = (item: unknown) => item == null || item === '' ? 'Sin indicar' : typeof item === 'boolean' ? item ? 'Sí' : 'No' : String(item);
   const values: [string, unknown][] = [
-    ['Fecha', p.fecha], ['Categoría', p.categoria], ['Procedimiento', getProcedureWorkbookFields(p.procedimiento, p.otro_especificar).procedimientoFinal],
+    ['Fecha', p.fecha], ['Estado de cirugía', p.estado === 'programada' ? 'Programada' : 'Realizada'], ['Notas', p.notas], ['Categoría', p.categoria], ['Procedimiento', getProcedureWorkbookFields(p.procedimiento, p.otro_especificar).procedimientoFinal],
     ['Detalle del procedimiento', usesStructuredProcedureDetails(p.procedimiento) ? null : p.otro_especificar], ['Abordaje', p.abordaje], ['Rol', p.rol],
     ['Duración (min)', p.duracion], ['Cirujano senior', p.cirujano_senior],
     ['Primer ayudante', p.primer_ayudante], ['Segundo ayudante', p.segundo_ayudante],

@@ -35,7 +35,7 @@ function fixture(): BackupPayload {
 test('accepts a complete backup and returns independent validated objects', () => {
   const input = fixture();
   const result = validateBackupPayload(input, options);
-  assert.deepEqual(result, input);
+  assert.deepEqual(result, { ...input, data: { ...input.data, procedures: input.data.procedures.map(p => ({ ...p, estado: 'realizada', nota_conocida: false, notas_revisadas: false, notas: null })) } });
   assert.notEqual(result.data.procedures[0], input.data.procedures[0]);
   assert.notEqual(result.data.stoneDetails![0].procedimiento_raw, input.data.stoneDetails![0].procedimiento_raw);
 });

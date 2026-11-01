@@ -2,6 +2,9 @@
 export interface Procedure {
   id: string;
   fecha: string;                  // YYYY-MM-DD
+  estado?: 'programada' | 'realizada';
+  nota_conocida?: boolean;
+  notas_revisadas?: boolean;
   categoria: string;
   procedimiento: string;
   abordaje: string;
@@ -11,6 +14,7 @@ export interface Procedure {
   primer_ayudante: string | null;
   segundo_ayudante: string | null;
   complicaciones: string | null;
+  notas?: string | null;
   otro_especificar: string | null;
   created_at: string;             // ISO 8601
   updated_at: string;             // ISO 8601

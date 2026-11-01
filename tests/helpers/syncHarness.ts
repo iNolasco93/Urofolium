@@ -6,7 +6,7 @@ Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: tr
 export const KEY = 'synthetic-sync-secret-for-tests';
 export const time = '2026-10-30T10:00:00.000Z';
 export function surgery(id = 'case-1') {
-  return { id, fecha: '2026-10-30', categoria: 'Litiasis', procedimiento: 'RIRS', abordaje: 'Endoscópico', duracion: 60,
+  return { id, fecha: '2026-10-30', estado: 'realizada' as const, notas: null as string | null, nota_conocida: false, notas_revisadas: false, categoria: 'Litiasis', procedimiento: 'RIRS', abordaje: 'Endoscópico', duracion: 60,
     rol: 'Cirujano principal', cirujano_senior: 'Senior', primer_ayudante: null, segundo_ayudante: null,
     complicaciones: null, otro_especificar: null, created_at: time, updated_at: time, deleted_at: null as string | null };
 }
@@ -46,11 +46,11 @@ export class Device {
   engine: SyncEngine;
   snapshotTransform?: () => SyncData;
   applied?: (data: SyncData) => void;
-  constructor(server: Server, data: SyncData = { cases: {} }, validators: Record<string, (value: unknown) => Entries> = { cases: validateCases }, user = 'account-a') {
+  constructor(server: Server, data: SyncData = { cases: {} }, validators: Record<string, (value: unknown) => Entries> = { cases: validateCases }, user = 'account-a', hooks: { prepareLocal?: import('../../src/sync/syncEngine').SyncPorts['prepareLocal']; reconcile?: import('../../src/sync/syncEngine').SyncPorts['reconcile'] } = {}) {
     this.data = structuredClone(data);
     const session = this.session;
     this.engine = new SyncEngine({
-      userId: user, validators,
+      userId: user, validators, ...hooks,
       assertActive: () => { if (this.session !== session) throw new Error('Sesión cambiada'); },
       getKey: async () => this.key,
       saveKey: async key => { this.key = key; },
