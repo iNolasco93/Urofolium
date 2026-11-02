@@ -276,3 +276,42 @@ test('an existing version-3 native account migrates its records and preserves no
   assert.equal(saved?.notas, original.notas ?? null);
   assert.equal(saved?.nota_conocida, false);
 });
+
+
+for (const platform of ['web', 'ios'] as const) {
+  test(`${platform}: renaming a personal procedure commits history and catalogue atomically`, async () => {
+    const { api, storage, sqlite } = await createHarness(platform);
+    await api.initDatabase('account-a', PASSPHRASE);
+    const now = '2026-10-18T10:00:00.000Z';
+    const personal = { id: 'custom', categoria: 'Litiasis', nombre: 'Técnica antigua', abordajes: ['Percutáneo'], formulario: 'percutaneo' as const, createdAt: now, updatedAt: now, archivedAt: null };
+    await api.replaceDatabaseContents([{ ...procedure(), categoria: 'Litiasis', procedimiento: personal.nombre }], [stone()], [personal]);
+    await api.renamePersonalProcedure({ ...personal, nombre: 'Técnica nueva' }, personal, true);
+    const catalog = await api.readPersonalProcedures();
+    assert.equal(catalog.find((item: any) => item.id === 'custom').archivedAt !== null, true);
+    assert.equal((await api.getAllProcedures())[0].procedimiento, 'Técnica nueva');
+    if (platform === 'web') assert.equal(api.readWebStoneDetails()[0].procedure_id, procedure().id);
+    const active = catalog.find((item: any) => !item.archivedAt);
+    if (platform === 'web') storage.failWrites = true; else sqlite.failNextTransaction = true;
+    await assert.rejects(api.renamePersonalProcedure({ ...active, nombre: 'Fallo deliberado' }, active, true), /quota|transaction failure/);
+    assert.equal((await api.getAllProcedures())[0].procedimiento, 'Técnica nueva');
+    assert.equal((await api.readPersonalProcedures()).find((item: any) => !item.archivedAt).nombre, 'Técnica nueva');
+  });
+}
+
+test('eliminar y volver a añadir un procedimiento conserva las cirugías y su configuración', async () => {
+  const { api } = await createHarness();
+  await api.initDatabase('account-a', PASSPHRASE);
+  const now = '2026-10-18T10:00:00.000Z';
+  const item = { id: 'custom-remove', categoria: 'Litiasis', nombre: 'Técnica personal', abordajes: ['Percutáneo'], formulario: 'percutaneo' as const, createdAt: now, updatedAt: now, archivedAt: null };
+  await api.replaceDatabaseContents([{ ...procedure(), categoria: 'Litiasis', procedimiento: item.nombre }], [stone()], [item]);
+  await api.putPersonalProcedure({ ...item, archivedAt: now });
+  assert.equal((await api.getAllProcedures())[0].procedimiento, item.nombre);
+  await assert.rejects(api.putPersonalProcedure({ ...item, id: 'new-id', formulario: 'sencillo' }), /cirugías registradas/);
+  await api.putPersonalProcedure({ ...item, id: 'new-id' });
+  const catalog = await api.readPersonalProcedures();
+  assert.equal(catalog.length, 1);
+  assert.equal(catalog[0].id, item.id);
+  assert.equal(catalog[0].archivedAt, null);
+  assert.equal((await api.getAllProcedures())[0].procedimiento, item.nombre);
+  assert.equal(api.readWebStoneDetails()[0].procedure_id, procedure().id);
+});

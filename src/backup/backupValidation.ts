@@ -1,3 +1,4 @@
+import { validatePersonalCatalog } from '../lib/personalProcedures';
 import type { BackupPayload, Procedure, StoneDetails } from '../lib/types';
 
 interface BackupValidationOptions {
@@ -148,6 +149,9 @@ export function validateBackupPayload(input: unknown, options: BackupValidationO
     detailIds.add(row.procedure_id);
   }
 
+  const personalProcedures = data.personalProcedures === undefined && backupVersion < 5
+    ? undefined : validatePersonalCatalog(data.personalProcedures);
+
   return {
     app: 'UroFolium',
     backupVersion,
@@ -159,6 +163,6 @@ export function validateBackupPayload(input: unknown, options: BackupValidationO
       label: text(device.label, 'device.label'),
     },
     schema: { version: schemaVersion },
-    data: { procedures, stoneDetails: details },
+    data: { procedures, stoneDetails: details, ...(personalProcedures === undefined ? {} : { personalProcedures }) },
   };
 }

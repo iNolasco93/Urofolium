@@ -1,3 +1,5 @@
+import type { PersonalProcedure } from './personalProcedures';
+
 // ─── Procedimiento quirúrgico ───────────────────────────────────────────────
 export interface Procedure {
   id: string;
@@ -47,6 +49,7 @@ export interface StoneDetails {
 
 // ─── Metadatos de la app ────────────────────────────────────────────────────
 export type MetaKey =
+  | 'personal_procedures'
   | 'sync_baseline'
   | 'schema_version'
   | 'last_backup_at'
@@ -75,6 +78,7 @@ export interface BackupPayload {
   data: {
     procedures: Procedure[];
     stoneDetails?: StoneDetails[];
+    personalProcedures?: PersonalProcedure[];
   };
 }
 

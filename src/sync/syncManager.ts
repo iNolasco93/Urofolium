@@ -1,3 +1,4 @@
+import { readPersonalProcedures } from '../db/personalProcedureRepository';
 import { useEffect, useState } from 'react';
 import {
   applySyncState, assertDatabaseOwner, getDatabaseSession, getDataStamp,
@@ -64,14 +65,15 @@ export function startSync(userId: string): () => void {
       const baseline = parseBaseline(await getMeta('sync_baseline'));
       const procedures = await getAllStoredProcedures();
       const stones = await getAllStoneDetails();
+      const catalog = await readPersonalProcedures();
       assertActive();
-      return { data: splitData(procedures, stones, baseline), baseline, stamp: getDataStamp(), session };
+      return { data: splitData(procedures, stones, baseline, catalog), baseline, stamp: getDataStamp(), session };
     }, false),
     apply: async (local, data, baseline) => {
       assertActive();
       if (same(local.data, data) && same(local.baseline, baseline)) return local.stamp === getDataStamp();
       const joined = joinData(data);
-      const applied = await applySyncState(userId, local.session, local.stamp, joined.procedures, joined.stoneDetails, JSON.stringify(baseline));
+      const applied = await applySyncState(userId, local.session, local.stamp, joined.procedures, joined.stoneDetails, JSON.stringify(baseline), joined.personalProcedures);
       assertActive();
       if (applied && !same(local.data, data)) emitRemoteChange();
       return applied;

@@ -1,3 +1,4 @@
+import type { PersonalProcedure } from '../lib/personalProcedures';
 import { emitDatabaseLock, emitLocalChange } from '../sync/syncSignals';
 import { CapacitorSQLite, SQLiteConnection, type SQLiteDBConnection, type capSQLiteSet } from '@capacitor-community/sqlite';
 import { Capacitor } from '@capacitor/core';
@@ -325,26 +326,30 @@ function dataStatements(procedures: Procedure[], stones: StoneDetails[]): capSQL
 export async function upsertNativeProcedures(procedures: Procedure[]): Promise<void> {
   await getDB().executeSet(dataStatements(procedures, []), true);
 }
-export function replaceDatabaseContents(procedures: Procedure[], stoneDetails: StoneDetails[]): Promise<void> {
-  return runLocalWrite(getDatabaseOwner(), () => replaceDatabaseContentsUnlocked(procedures, stoneDetails));
+export function replaceDatabaseContents(procedures: Procedure[], stoneDetails: StoneDetails[], personalProcedures?: PersonalProcedure[]): Promise<void> {
+  return runLocalWrite(getDatabaseOwner(), () => replaceDatabaseContentsUnlocked(procedures, stoneDetails, personalProcedures));
 }
-async function replaceDatabaseContentsUnlocked(procedures: Procedure[], stoneDetails: StoneDetails[]): Promise<void> {
+async function replaceDatabaseContentsUnlocked(procedures: Procedure[], stoneDetails: StoneDetails[], personalProcedures?: PersonalProcedure[]): Promise<void> {
   if (isWebDatabase()) return activeVault().update(state => {
     state.procedures = procedures;
     state.stoneDetails = stoneDetails;
+    if (personalProcedures !== undefined) state.meta.personal_procedures = JSON.stringify(personalProcedures);
     state.meta.last_data_changed_at = new Date().toISOString();
   });
-  await getDB().executeSet([{ statement: 'DELETE FROM stone_details', values: [] }, { statement: 'DELETE FROM procedures', values: [] }, ...dataStatements(procedures, stoneDetails)], true);
+  await getDB().executeSet([{ statement: 'DELETE FROM stone_details', values: [] }, { statement: 'DELETE FROM procedures', values: [] }, ...dataStatements(procedures, stoneDetails), ...(personalProcedures === undefined ? [] : [{ statement: 'INSERT OR REPLACE INTO app_meta (key,value) VALUES (?,?)', values: ['personal_procedures', JSON.stringify(personalProcedures)] }])], true);
 }
-export function mergeDatabaseContents(procedures: Procedure[], stoneDetails: StoneDetails[], removeStoneIds: string[] = [], expectedStamp?: number): Promise<void> {
+export function mergeDatabaseContents(procedures: Procedure[], stoneDetails: StoneDetails[], removeStoneIds: string[] = [], expectedStamp?: number, personalProcedures?: PersonalProcedure[]): Promise<void> {
   return runLocalWrite(getDatabaseOwner(), async () => {
     if (expectedStamp !== undefined && expectedStamp !== dataStamp) throw new Error('Los registros cambiaron mientras los revisabas. Vuelve a abrirlos antes de guardar.');
-    await mergeDatabaseContentsUnlocked(procedures, stoneDetails, removeStoneIds);
+    await mergeDatabaseContentsUnlocked(procedures, stoneDetails, removeStoneIds, personalProcedures);
   });
 }
-async function mergeDatabaseContentsUnlocked(procedures: Procedure[], stoneDetails: StoneDetails[], removeStoneIds: string[]): Promise<void> {
-  if (isWebDatabase()) return activeVault().update(state => mergeState(state, procedures, stoneDetails, removeStoneIds));
-  await getDB().executeSet([...removeStoneIds.map(id => ({ statement: 'DELETE FROM stone_details WHERE procedure_id = ?', values: [id] })), ...dataStatements(procedures, stoneDetails)], true);
+async function mergeDatabaseContentsUnlocked(procedures: Procedure[], stoneDetails: StoneDetails[], removeStoneIds: string[], personalProcedures?: PersonalProcedure[]): Promise<void> {
+  if (isWebDatabase()) return activeVault().update(state => {
+    mergeState(state, procedures, stoneDetails, removeStoneIds);
+    if (personalProcedures !== undefined) state.meta.personal_procedures = JSON.stringify(personalProcedures);
+  });
+  await getDB().executeSet([...removeStoneIds.map(id => ({ statement: 'DELETE FROM stone_details WHERE procedure_id = ?', values: [id] })), ...dataStatements(procedures, stoneDetails), ...(personalProcedures === undefined ? [] : [{ statement: 'INSERT OR REPLACE INTO app_meta (key,value) VALUES (?,?)', values: ['personal_procedures', JSON.stringify(personalProcedures)] }])], true);
 }
 
 export async function getLocalSecret(key: string): Promise<string | null> {
@@ -376,13 +381,14 @@ export async function removeLocalSecrets(keys: string[]): Promise<void> {
 }
 
 /** Commit the data and its exact merge baseline together; a failed write advances neither. */
-export function applySyncState(userId: string, session: number, stamp: number, procedures: Procedure[], stoneDetails: StoneDetails[], baseline: string): Promise<boolean> {
+export function applySyncState(userId: string, session: number, stamp: number, procedures: Procedure[], stoneDetails: StoneDetails[], baseline: string, personalProcedures?: PersonalProcedure[]): Promise<boolean> {
   return runLocalWrite(userId, async () => {
     if (session !== generation || stamp !== dataStamp) return false;
     if (isWebDatabase()) {
       await activeVault().update(state => {
         state.procedures = procedures;
         state.stoneDetails = stoneDetails;
+        if (personalProcedures !== undefined) state.meta.personal_procedures = JSON.stringify(personalProcedures);
         state.meta.sync_baseline = baseline;
         state.meta.last_data_changed_at = new Date().toISOString();
       });
@@ -391,6 +397,7 @@ export function applySyncState(userId: string, session: number, stamp: number, p
         { statement: 'DELETE FROM stone_details', values: [] },
         { statement: 'DELETE FROM procedures', values: [] },
         ...dataStatements(procedures, stoneDetails),
+        ...(personalProcedures === undefined ? [] : [{ statement: 'INSERT OR REPLACE INTO app_meta (key,value) VALUES (?,?)', values: ['personal_procedures', JSON.stringify(personalProcedures)] }]),
         { statement: 'INSERT OR REPLACE INTO app_meta (key,value) VALUES (?,?)', values: ['sync_baseline', baseline] },
       ], true);
     }

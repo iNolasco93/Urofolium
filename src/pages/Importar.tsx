@@ -1,3 +1,6 @@
+import { readPersonalProcedures } from '../db/personalProcedureRepository';
+import { normalizeProcedureName, procedureNameExists, type PersonalProcedure } from '../lib/personalProcedures';
+import { same } from '../sync/syncMerge';
 import { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { getAllProcedures } from '../db/procedureRepository';
@@ -206,6 +209,7 @@ function downloadTemplate(): void {
 
 export default function Importar() {
   const [rows, setRows] = useState<RowPreview[]>([]);
+  const [importedCatalog, setImportedCatalog] = useState<PersonalProcedure[] | undefined>();
   const [errores, setErrores] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -237,6 +241,7 @@ export default function Importar() {
     setImportResult(null);
     setErrores([]);
     setRows([]);
+    setImportedCatalog(undefined);
     setPreviewOwner(null);
     setLoading(true);
 
@@ -248,6 +253,7 @@ export default function Importar() {
       assertDatabaseOwner(owner);
       setExistingProcedures(existing);
       setRows(parsed.rows);
+      setImportedCatalog(parsed.personalCatalog);
       setErrores(parsed.errors);
       setPreviewOwner(owner);
     } catch (error) {
@@ -269,7 +275,17 @@ export default function Importar() {
       const currentById = new Map(existing.map(procedure => [procedure.id, procedure]));
       const summaryBeforeImport = summarizeRows(rows, currentById);
       const payload = materializeProcedureImport(rows, existing, existingStone);
-      await mergeDatabaseContents(payload.procedures, payload.stoneDetails, payload.removeStoneIds, stamp);
+      let mergedCatalog: PersonalProcedure[] | undefined;
+      if (importedCatalog) {
+        mergedCatalog = await readPersonalProcedures();
+        for (const item of importedCatalog) {
+          const sameId = mergedCatalog.find(existingItem => existingItem.id === item.id);
+          if (sameId && !same(sameId, item)) throw new Error(`La técnica ${item.nombre} tiene cambios diferentes. Revísala antes de importar.`);
+          if (!sameId && (procedureNameExists(item.categoria, item.nombre, []) || mergedCatalog.some(existingItem => existingItem.categoria === item.categoria && (existingItem.nombre === item.nombre || (!existingItem.archivedAt && !item.archivedAt && normalizeProcedureName(existingItem.nombre) === normalizeProcedureName(item.nombre)))))) throw new Error(`Ya existe otra técnica llamada ${item.nombre}.`);
+          if (!sameId) mergedCatalog.push(item);
+        }
+      }
+      await mergeDatabaseContents(payload.procedures, payload.stoneDetails, payload.removeStoneIds, stamp, mergedCatalog);
       assertDatabaseOwner(previewOwner);
       setImported(payload.procedures.length);
       setImportResult(summaryBeforeImport);

@@ -1,3 +1,4 @@
+import { validatePersonalCatalog, type PersonalProcedure } from './personalProcedures';
 import { fechaLocal } from './fechas';
 import * as XLSX from 'xlsx';
 import type { Procedure, StoneDetails, StoneProcedureRaw } from './types';
@@ -46,7 +47,7 @@ export function getProcedureWorkbookColumns(): string[] {
 }
 
 export function createProcedureWorkbook(
-  procedures: Procedure[], stoneDetails: StoneDetails[],
+  procedures: Procedure[], stoneDetails: StoneDetails[], personalCatalog: PersonalProcedure[] = [],
 ): XLSX.WorkBook {
   const stoneById = new Map(stoneDetails.map(item => [item.procedure_id, item]));
   const headers = getProcedureWorkbookColumns();
@@ -80,6 +81,10 @@ export function createProcedureWorkbook(
   sheet['!cols'] = headers.map(header => ({ wch: Math.min(32, Math.max(16, header.length + 2)) }));
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, sheet, 'UroFolium');
+  if (personalCatalog.length) {
+    const rows = validatePersonalCatalog(personalCatalog).map(item => ({ ...item, abordajes: JSON.stringify(item.abordajes), archivedAt: item.archivedAt ?? '' }));
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), 'Mis procedimientos');
+  }
   const reviewCases = getMigrationReviewCases(procedures);
   if (reviewCases.length > 0) {
     const reviewRows = reviewCases.map(item => ({
@@ -107,7 +112,17 @@ export function createProcedureWorkbook(
 export function readProcedureWorkbook(data: ArrayBuffer) {
   // Keep CSV values as text: automatic Excel date coercion can change calendar
   // dates across time zones and remove leading zeroes from identifiers.
-  return parseProcedureWorkbook(XLSX.read(data, { type: 'array', cellDates: false, raw: true }));
+  const workbook = XLSX.read(data, { type: 'array', cellDates: false, raw: true });
+  return { ...parseProcedureWorkbook(workbook), personalCatalog: readPersonalCatalogSheet(workbook) };
+}
+
+function readPersonalCatalogSheet(workbook: XLSX.WorkBook): PersonalProcedure[] | undefined {
+  const sheet = workbook.Sheets['Mis procedimientos'];
+  if (!sheet) return undefined;
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { raw: true, defval: '' });
+  try {
+    return validatePersonalCatalog(rows.map(row => ({ ...row, abordajes: JSON.parse(String(row.abordajes)), archivedAt: row.archivedAt || null })));
+  } catch { throw new Error('La hoja Mis procedimientos contiene datos inválidos. No se importó ningún registro.'); }
 }
 
 function blank(value: unknown): boolean {

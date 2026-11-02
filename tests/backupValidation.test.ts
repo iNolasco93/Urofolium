@@ -111,3 +111,19 @@ for (const invalid of [null, [], 'backup', 4, { app: 'UroFolium' }]) {
     assert.throws(() => validateBackupPayload(invalid, options), /Respaldo inválido/);
   });
 }
+
+
+test('catalogues survive a modern backup and invalid or missing catalogues are rejected', () => {
+  const input = fixture();
+  input.backupVersion = 5;
+  input.data.personalProcedures = [{
+    id: 'custom-a', categoria: 'Litiasis', nombre: 'Técnica personal', abordajes: ['Percutáneo'],
+    formulario: 'percutaneo', createdAt: timestamp, updatedAt: timestamp, archivedAt: null,
+  }];
+  const modern = { ...options, maxBackupVersion: 5 };
+  assert.deepEqual(validateBackupPayload(input, modern).data.personalProcedures, input.data.personalProcedures);
+  input.data.personalProcedures[0].abordajes = [];
+  assert.throws(() => validateBackupPayload(input, modern));
+  delete input.data.personalProcedures;
+  assert.throws(() => validateBackupPayload(input, modern));
+});

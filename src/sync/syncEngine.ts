@@ -1,3 +1,5 @@
+import { normalizeProcedureName, validatePersonalCatalog } from '../lib/personalProcedures';
+import { CATALOG_MARKER } from './syncCatalog';
 import { decryptSnapshot, encryptSnapshot, generateSyncKey, SyncKeyError, type SyncEnvelope } from './syncCrypto';
 import { hashes, mergeEntries, same } from './syncMerge';
 import type { Baseline, Conflict, Entries, LocalSnapshot, Resolutions, SyncData } from './syncModel';
@@ -127,6 +129,7 @@ export class SyncEngine {
         // Before notes were available on both clients, an absent common note was unknown.
         // An explicitly cleared note has nota_conocida=true and must never be filled in.
         if (channel === 'cases') for (const [id, value] of Object.entries(remoteEntries)) {
+          if (id === CATALOG_MARKER) continue;
           const remoteCase = value as { procedure: Record<string, unknown> };
           const localCase = localEntries[id] as { procedure: Record<string, unknown> } | undefined;
           if (localCase?.procedure.nota_conocida === true && remoteCase.procedure.nota_conocida === false) {
@@ -144,6 +147,15 @@ export class SyncEngine {
         data[channel] = result.merged;
         expected[channel] = revision;
         baseline.channels[channel] = { revision, hashes: {} };
+      }
+      if (data.catalog) {
+        const active = validatePersonalCatalog(Object.values(data.catalog)).filter(item => !item.archivedAt);
+        const names = new Set<string>();
+        for (const item of active) {
+          const key = JSON.stringify([item.categoria, normalizeProcedureName(item.nombre)]);
+          if (names.has(key)) throw new Error(`Hay técnicas personales con el mismo nombre en distintos dispositivos: ${item.nombre}. Cambia el nombre de una o elimínala antes de sincronizar.`);
+          names.add(key);
+        }
       }
       if (!conflicts.length && this.ports.reconcile) conflicts.push(...await this.ports.reconcile(data, remoteData, this.resolutions));
       this.check();

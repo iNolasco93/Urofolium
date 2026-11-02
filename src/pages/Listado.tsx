@@ -1,3 +1,4 @@
+import { readPersonalProcedures } from '../db/personalProcedureRepository';
 import { same } from '../sync/syncMerge';
 import { useRemoteRevision } from '../sync/syncManager';
 import { useEffect, useState } from 'react';
@@ -84,15 +85,15 @@ export default function Listado() {
     try {
       if (!loadedOwner) throw new Error('Vuelve a cargar el listado antes de exportar.');
       assertDatabaseOwner(loadedOwner);
-      const stoneDetails = await runLocalWrite(loadedOwner, async () => {
+      const { stoneDetails, personalCatalog } = await runLocalWrite(loadedOwner, async () => {
         const current = new Map((await getAllProcedures()).map(item => [item.id, item]));
         if (filtered.some(item => !same(item, current.get(item.id)))) {
           throw new Error('El listado ha recibido cambios. Revisa los registros actualizados y vuelve a exportar.');
         }
-        return getAllStoneDetails();
+        return { stoneDetails: await getAllStoneDetails(), personalCatalog: await readPersonalProcedures() };
       }, false);
       assertDatabaseOwner(loadedOwner);
-      const workbook = createProcedureWorkbook(filtered, stoneDetails);
+      const workbook = createProcedureWorkbook(filtered, stoneDetails, personalCatalog);
       XLSX.writeFile(workbook, `urofolium-registros-${formatFilenameScope(selectedResidencyYears)}.xlsx`);
     } catch (error) {
       setExportError(error instanceof Error ? error.message : 'No se pudo exportar el archivo.');

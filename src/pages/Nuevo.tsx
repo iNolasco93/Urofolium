@@ -1,4 +1,7 @@
 import { fechaLocal } from '../lib/fechas';
+import { readPersonalProcedures } from '../db/personalProcedureRepository';
+import { useRemoteRevision } from '../sync/syncManager';
+import { insertPersonalBeforeOthers, type PersonalProcedure } from '../lib/personalProcedures';
 import { canonical } from '../sync/syncMerge';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -270,8 +273,8 @@ function parseStoneProcedureRaw(procedimiento: string): StoneProcedureRaw {
   };
 }
 
-function stoneDetailsToForm(details: StoneDetails | null, procedimiento: string): typeof STONE_EMPTY {
-  const raw = details?.procedimiento_raw ?? parseStoneProcedureRaw(procedimiento);
+function stoneDetailsToForm(details: StoneDetails | null, procedimiento: string, personal = false): typeof STONE_EMPTY {
+  const raw = details?.procedimiento_raw ?? (personal ? { urs: false, rirs: false, nlpc: false } : parseStoneProcedureRaw(procedimiento));
   return {
     lat_dcha: details?.lateralidad === 'Derecha' || details?.lateralidad === 'Bilateral',
     lat_izq: details?.lateralidad === 'Izquierda' || details?.lateralidad === 'Bilateral',
@@ -326,22 +329,28 @@ export default function Nuevo() {
   const isEdit = !!id;
   const originalCase = useRef<string | null>(null);
   const [form, setForm] = useState(() => ({ ...EMPTY, fecha: fechaLocal() }));
+  const [personalCatalog, setPersonalCatalog] = useState<PersonalProcedure[]>([]);
+  const remoteRevision = useRemoteRevision();
+  useEffect(() => { let active = true; readPersonalProcedures().then(value => { if (active) setPersonalCatalog(value); }).catch(() => { if (active) setError('No se pudo cargar tu catálogo personal.'); }); return () => { active = false; }; }, [remoteRevision]);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
   const [abordajeBloqueado, setAbordajeBloqueado] = useState(false);
 
   const isLitiasis = form.categoria === LITIASIS;
-  const procedimientoLitiasis = getProcedimientoLitiasis(form);
-  const requiereStone = isLitiasis && requiereDetallesStone(form);
-  const abordajeLitiasisCalculado = isLitiasis ? calcularAbordajeLitiasis(procedimientoLitiasis, form.rol) : '';
-  const abordajeLitiasisEditable = isLitiasis && puedeElegirAbordajeLitiasis(procedimientoLitiasis, form.rol);
-  const abordajeLitiasis = abordajeLitiasisCalculado || (abordajeLitiasisEditable ? form.abordaje : '');
+  const personal = personalCatalog.find(item => item.categoria === form.categoria && item.nombre === form.procedimiento);
+  const personalLitiasis = isLitiasis ? personal : undefined;
+  const procedimientoLitiasis = personalLitiasis ? form.procedimiento : getProcedimientoLitiasis(form);
+  const requiereStone = isLitiasis && (personalLitiasis ? personalLitiasis.formulario !== 'sencillo' : requiereDetallesStone(form));
+  const percutaneous = form.proc_nlpc || personalLitiasis?.formulario === 'percutaneo';
+  const abordajeLitiasisCalculado = isLitiasis ? personalLitiasis ? (personalLitiasis.abordajes.length === 1 ? personalLitiasis.abordajes[0] : '') : calcularAbordajeLitiasis(procedimientoLitiasis, form.rol) : '';
+  const abordajeLitiasisEditable = isLitiasis && (personalLitiasis ? true : puedeElegirAbordajeLitiasis(procedimientoLitiasis, form.rol));
+  const abordajeLitiasis = personalLitiasis ? form.abordaje : abordajeLitiasisCalculado || (abordajeLitiasisEditable ? form.abordaje : '');
   const lateralidad = calcularLateralidad(form.lat_dcha, form.lat_izq);
   const etiquetaDrenaje = calcularEtiquetaDrenaje(
-    form.proc_nlpc,
+    percutaneous,
     form.drenaje ? form.tutor_interno : '',
-    form.proc_nlpc ? form.drenaje_nefrostomico : '',
+    percutaneous ? form.drenaje_nefrostomico : '',
     form.sonda_fr
   );
 
@@ -350,8 +359,8 @@ export default function Nuevo() {
 
     let cancelled = false;
     (async () => {
-      const { data, storedStone } = await runLocalWrite(getDatabaseOwner(), async () => ({
-        data: await getProcedureById(id), storedStone: await getStoneDetailsByProcedureId(id),
+      const { data, storedStone, catalog } = await runLocalWrite(getDatabaseOwner(), async () => ({
+        data: await getProcedureById(id), storedStone: await getStoneDetailsByProcedureId(id), catalog: await readPersonalProcedures(),
       }), false);
       if (!data || cancelled) return;
 
@@ -363,7 +372,7 @@ export default function Nuevo() {
       const parsedDetail = parseStoredDetail(parsedProcedure.procedimiento, data.otro_especificar);
       originalCase.current = canonical({ procedure: data, stone: storedStone });
       const stoneForm = data.categoria === LITIASIS
-        ? stoneDetailsToForm(storedStone, data.procedimiento || '')
+        ? stoneDetailsToForm(storedStone, data.procedimiento || '', catalog.some(item => item.categoria === data.categoria && item.nombre === data.procedimiento))
         : { ...STONE_EMPTY };
       if (cancelled) return;
       const tieneComplicaciones = !!data.complicaciones && data.complicaciones !== 'No';
@@ -418,6 +427,12 @@ export default function Nuevo() {
       return;
     }
 
+    if (personal) {
+      if (personal.abordajes.length === 1 && !form.abordaje) setForm(f => ({ ...f, abordaje: personal.abordajes[0] }));
+      setAbordajeBloqueado(false);
+      return;
+    }
+
     if (form.procedimiento === 'HoLEP/ThuLEP') {
       if (!form.holep_thulep) {
         setForm(f => f.abordaje ? { ...f, abordaje: '' } : f);
@@ -445,7 +460,7 @@ export default function Nuevo() {
     } else {
       setAbordajeBloqueado(false);
     }
-  }, [form.categoria, form.procedimiento, form.holep_thulep, form.tecnica_especificar]);
+  }, [form.categoria, form.procedimiento, form.holep_thulep, form.tecnica_especificar, personal]);
 
   const set = (k: string, v: string | boolean) => setForm(f => ({ ...f, [k]: v }));
 
@@ -532,13 +547,13 @@ export default function Nuevo() {
       rirs: form.proc_rirs,
       nlpc: form.proc_nlpc,
     },
-    nefromax_fr: form.proc_nlpc && form.nefromax && form.nefromax_fr ? parseInt(form.nefromax_fr, 10) : null,
-    amplatz_fr: form.proc_nlpc && form.amplatz && form.amplatz_fr ? parseInt(form.amplatz_fr, 10) : null,
-    enhebrado: form.proc_nlpc ? form.enhebrado : false,
+    nefromax_fr: percutaneous && form.nefromax && form.nefromax_fr ? parseInt(form.nefromax_fr, 10) : null,
+    amplatz_fr: percutaneous && form.amplatz && form.amplatz_fr ? parseInt(form.amplatz_fr, 10) : null,
+    enhebrado: percutaneous ? form.enhebrado : false,
     tamanio_mm: form.tamanio_mm ? parseFloat(form.tamanio_mm) : null,
     tutor_interno: form.drenaje && form.tutor_interno ? form.tutor_interno : null,
-    drenaje_nefrostomico: form.proc_nlpc && form.drenaje_nefrostomico ? form.drenaje_nefrostomico : null,
-    sonda_fr: form.proc_nlpc && form.drenaje_nefrostomico === 'Sonda' && form.sonda_fr ? parseInt(form.sonda_fr, 10) : null,
+    drenaje_nefrostomico: percutaneous && form.drenaje_nefrostomico ? form.drenaje_nefrostomico : null,
+    sonda_fr: percutaneous && form.drenaje_nefrostomico === 'Sonda' && form.sonda_fr ? parseInt(form.sonda_fr, 10) : null,
     etiqueta_drenaje: etiquetaDrenaje || null,
     stonefree: requiereStone ? form.stonefree === 'si' : null,
   });
@@ -551,9 +566,9 @@ export default function Nuevo() {
     if (!lateralidad) return 'Selecciona la lateralidad.';
     if (form.stonefree === '') return 'Indica si el resultado stonefree es Sí o No.';
     if (form.drenaje && !form.tutor_interno) return 'Selecciona el tipo de tutor interno.';
-    if (form.proc_nlpc && form.nefromax && !form.nefromax_fr) return 'Selecciona el calibre de Nefromax.';
-    if (form.proc_nlpc && form.amplatz && !form.amplatz_fr) return 'Selecciona el calibre de Amplatz.';
-    if (form.proc_nlpc && form.drenaje_nefrostomico === 'Sonda' && !form.sonda_fr) return 'Selecciona el calibre de la sonda.';
+    if (percutaneous && form.nefromax && !form.nefromax_fr) return 'Selecciona el calibre de Nefromax.';
+    if (percutaneous && form.amplatz && !form.amplatz_fr) return 'Selecciona el calibre de Amplatz.';
+    if (percutaneous && form.drenaje_nefrostomico === 'Sonda' && !form.sonda_fr) return 'Selecciona el calibre de la sonda.';
     return null;
   };
 
@@ -616,9 +631,9 @@ export default function Nuevo() {
       return;
     }
 
-    const procFinal = programada && !isLitiasis && !['Otros'].includes(form.procedimiento) ? form.procedimiento : buildStoredProcedure(form);
+    const procFinal = personalLitiasis ? form.procedimiento : programada && !isLitiasis && !['Otros'].includes(form.procedimiento) ? form.procedimiento : buildStoredProcedure(form);
     const abordajeFinal = programada ? form.abordaje : isLitiasis
-      ? calcularAbordajeLitiasis(procFinal, form.rol) || form.abordaje
+      ? personalLitiasis ? abordajeLitiasis : calcularAbordajeLitiasis(procFinal, form.rol) || form.abordaje
       : form.abordaje;
     if (!programada && !abordajeFinal) {
       setError('Selecciona el abordaje.');
@@ -689,7 +704,8 @@ export default function Nuevo() {
     }
   };
 
-  const configuredProcedures = CATEGORIAS[form.categoria] ?? [];
+  const activePersonal = personalCatalog.filter(item => item.categoria === form.categoria && (!item.archivedAt || item.nombre === form.procedimiento));
+  const configuredProcedures = insertPersonalBeforeOthers(CATEGORIAS[form.categoria] ?? [], activePersonal.map(item => item.nombre));
   const procedimientosDisponibles = form.procedimiento && !configuredProcedures.includes(form.procedimiento)
     ? [form.procedimiento, ...configuredProcedures]
     : configuredProcedures;
@@ -697,7 +713,7 @@ export default function Nuevo() {
   const categoriasDisponibles = form.categoria && !configuredCategories.includes(form.categoria)
     ? [form.categoria, ...configuredCategories]
     : configuredCategories;
-  const configuredApproaches = getAbordajesDisponibles(form.categoria, form.procedimiento);
+  const configuredApproaches = personal?.abordajes ?? getAbordajesDisponibles(form.categoria, form.procedimiento);
   const abordajesDisponibles = form.abordaje && !configuredApproaches.includes(form.abordaje)
     ? [form.abordaje, ...configuredApproaches]
     : configuredApproaches;
@@ -710,6 +726,7 @@ export default function Nuevo() {
     <div>
       <h2 style={{ marginBottom: 20, fontSize: 20 }}>{isEdit ? 'Editar registro' : 'Nuevo registro'}</h2>
       {success && <div className="success-toast">Guardado correctamente</div>}
+      <button type="button" className="btn-ghost" onClick={() => navigate('/ajustes#procedimientos-personales')}>Gestionar mis procedimientos</button>
       {error && <div style={{ color: 'var(--danger)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
 
       <div className="form-group">
@@ -729,7 +746,7 @@ export default function Nuevo() {
           <div className="form-group"><label htmlFor="grupo-prostatico-programado">Procedimiento *</label>
             <select id="grupo-prostatico-programado" value={form.grupo_prostatico} onChange={e => handleGrupoProstaticoChange(e.target.value)} required>
               <option value="">Seleccionar procedimiento</option><option value={CIRUGIA_HBP}>{CIRUGIA_HBP}</option>
-              {OTROS_PROCEDIMIENTOS_PROSTATICOS.map(value => <option key={value} value={value}>{value}</option>)}
+              {insertPersonalBeforeOthers(OTROS_PROCEDIMIENTOS_PROSTATICOS, activePersonal.map(item => item.nombre)).map(value => <option key={value} value={value}>{value}</option>)}
             </select></div>
           {form.grupo_prostatico === CIRUGIA_HBP && <div className="form-group"><label htmlFor="procedimiento-programado">Técnica *</label>
             <select id="procedimiento-programado" value={form.procedimiento} onChange={e => handleProcedimientoChange(e.target.value)} required>
@@ -739,17 +756,17 @@ export default function Nuevo() {
           <select id="procedimiento-programado" value={isLitiasis ? procedimientoLitiasis : form.procedimiento} disabled={!form.categoria} required onChange={e => {
             const value = e.target.value;
             if (isLitiasis) {
-              const raw = parseStoneProcedureRaw(value);
+              const raw = activePersonal.some(item => item.nombre === value) ? { urs: false, rirs: false, nlpc: false } : parseStoneProcedureRaw(value);
               setForm(f => ({ ...f, procedimiento: value, proc_urs: raw.urs, proc_rirs: raw.rirs, proc_nlpc: raw.nlpc, abordaje: '' }));
             } else handleProcedimientoChange(value);
           }}>
             <option value="">Seleccionar procedimiento</option>
-            {(isLitiasis ? ['URS', 'RIRS', 'NLPC', 'URS + RIRS', 'URS + NLPC', 'ECIRS', 'Cistolitotricia', 'Cistolitotomía'] : procedimientosDisponibles).map(value => <option key={value} value={value}>{value}</option>)}
+            {(isLitiasis ? ['URS', 'RIRS', 'NLPC', 'URS + RIRS', 'URS + NLPC', 'ECIRS', 'Cistolitotricia', 'Cistolitotomía', ...activePersonal.map(item => item.nombre)] : procedimientosDisponibles).map(value => <option key={value} value={value}>{value}</option>)}
           </select></div>}
         {form.procedimiento === 'Otros' && <div className="form-group"><label htmlFor="otros-programada">Descripción *</label><input id="otros-programada" value={form.otro_especificar} onChange={e => set('otro_especificar', e.target.value)} required /></div>}
         <div className="form-group"><label htmlFor="abordaje-programada">Abordaje (opcional)</label>
           <select id="abordaje-programada" value={form.abordaje} disabled={!form.procedimiento && !procedimientoLitiasis} onChange={e => set('abordaje', e.target.value)}>
-            <option value="">Sin indicar</option>{(isLitiasis ? (procedimientoLitiasis === 'ECIRS' ? ['Endoscópico', 'Percutáneo'] : [calcularAbordajeLitiasis(procedimientoLitiasis, '')].filter(Boolean)) : abordajesDisponibles).map(value => <option key={value} value={value}>{value}</option>)}
+            <option value="">Sin indicar</option>{(isLitiasis ? personalLitiasis ? abordajesDisponibles : (procedimientoLitiasis === 'ECIRS' ? ['Endoscópico', 'Percutáneo'] : [calcularAbordajeLitiasis(procedimientoLitiasis, '')].filter(Boolean)) : abordajesDisponibles).map(value => <option key={value} value={value}>{value}</option>)}
           </select></div>
         <div className="form-group"><label htmlFor="notas-programada">Notas (opcional)</label>
           <textarea id="notas-programada" value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value, nota_conocida: true }))} placeholder="Detalles sin datos identificativos" /></div>
@@ -802,6 +819,9 @@ export default function Nuevo() {
                     {form.procedimiento === proc && !requiereStone ? '✓' : '○'} {proc}
                   </button>
                 ))}
+                {activePersonal.map(item => <button type="button" key={item.id} className={`check-pill ${personalLitiasis?.id === item.id ? 'active' : ''}`} onClick={() => setForm(f => ({ ...f, ...STONE_EMPTY, procedimiento: item.nombre, abordaje: item.abordajes.length === 1 ? item.abordajes[0] : '' }))}>
+                  {personalLitiasis?.id === item.id ? '✓' : '○'} {item.nombre}
+                </button>)}
               </div>
               {procedimientoLitiasis && (
                 <div className="field-result">
@@ -832,7 +852,7 @@ export default function Nuevo() {
               </div>
             )}
 
-            <div className="card-section">
+            {(!personalLitiasis || personalLitiasis.formulario !== 'sencillo') && <div className="card-section">
               <div className="card-section-title">Tamaño litiasico</div>
               <input
                 type="number"
@@ -843,9 +863,9 @@ export default function Nuevo() {
                 min="0"
                 step="1"
               />
-            </div>
+            </div>}
 
-            {form.proc_nlpc && (
+            {percutaneous && (
               <div className="card-section">
                 <div className="card-section-title">Dilatacion</div>
                 <div className="stone-subgroup">
@@ -940,7 +960,7 @@ export default function Nuevo() {
                     </div>
                   )}
 
-                  {form.proc_nlpc && (
+                  {percutaneous && (
                     <>
                       <p className="field-title" style={{ marginTop: 16 }}>Nefrostomico</p>
                       <div className="radio-group">
@@ -1007,7 +1027,7 @@ export default function Nuevo() {
                   required
                 >
                   <option value="">Seleccionar abordaje</option>
-                  {(abordajeLitiasisEditable ? ['Endoscópico', 'Percutáneo'] : TODOS_ABORDAJES).map(a => (
+                  {(personalLitiasis ? abordajesDisponibles : abordajeLitiasisEditable ? ['Endoscópico', 'Percutáneo'] : TODOS_ABORDAJES).map(a => (
                     <option key={a} value={a}>{a}</option>
                   ))}
                 </select>
@@ -1027,10 +1047,10 @@ export default function Nuevo() {
                   <select value={form.grupo_prostatico} onChange={e => handleGrupoProstaticoChange(e.target.value)} required>
                     <option value="">Seleccionar procedimiento</option>
                     <option value={CIRUGIA_HBP}>{CIRUGIA_HBP}</option>
-                    {OTROS_PROCEDIMIENTOS_PROSTATICOS.map(proc => <option key={proc} value={proc}>{proc}</option>)}
+                    {insertPersonalBeforeOthers(OTROS_PROCEDIMIENTOS_PROSTATICOS, activePersonal.map(item => item.nombre)).map(proc => <option key={proc} value={proc}>{proc}</option>)}
                     {form.grupo_prostatico
                       && form.grupo_prostatico !== CIRUGIA_HBP
-                      && !OTROS_PROCEDIMIENTOS_PROSTATICOS.includes(form.grupo_prostatico as typeof OTROS_PROCEDIMIENTOS_PROSTATICOS[number])
+                      && !insertPersonalBeforeOthers(OTROS_PROCEDIMIENTOS_PROSTATICOS, activePersonal.map(item => item.nombre)).includes(form.grupo_prostatico)
                       && <option value={form.grupo_prostatico}>{form.grupo_prostatico} (procedimiento anterior)</option>}
                   </select>
                 </div>

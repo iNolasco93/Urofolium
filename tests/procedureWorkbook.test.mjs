@@ -180,3 +180,15 @@ test('scheduled cases and notes round-trip without a role or approach', () => {
   assert.equal(result.procedures[0].abordaje, '');
   assert.equal(result.procedures[0].notas, 'Revisar técnica');
 });
+
+
+test('exportación y reimportación conservan el catálogo personal y sus opciones', () => {
+  const custom = { id: 'custom-1', categoria: 'Litiasis', nombre: 'Técnica ficticia', abordajes: ['Percutáneo'], formulario: 'percutaneo', createdAt: timestamp, updatedAt: timestamp, archivedAt: null };
+  const book = createProcedureWorkbook([procedure], [stone], [custom]);
+  assert.ok(book.SheetNames.includes('Mis procedimientos'));
+  const parsed = readProcedureWorkbook(XLSX.write(book, { type: 'array', bookType: 'xlsx' }));
+  assert.deepEqual(parsed.personalCatalog, [custom]);
+  const sheet = book.Sheets['Mis procedimientos'];
+  sheet.D2.v = 'invalid';
+  assert.throws(() => readProcedureWorkbook(XLSX.write(book, { type: 'array', bookType: 'xlsx' })), /inválidos/);
+});

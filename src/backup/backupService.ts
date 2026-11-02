@@ -1,3 +1,4 @@
+import { validatePersonalCatalog } from '../lib/personalProcedures';
 import { Capacitor } from '@capacitor/core';
 import { getCurrentUser } from '../auth/authService';
 import { getAllProcedures } from '../db/procedureRepository';
@@ -13,7 +14,7 @@ import { migrateProcedureCatalog } from '../lib/migrationReview';
 import type { BackupPayload, BackupInfo } from '../lib/types';
 
 const APP_VERSION = '1.0.0';
-const BACKUP_VERSION = 4;
+const BACKUP_VERSION = 5;
 const LATEST_FILENAME = `${APP_CONFIG.backupPrefix}-backup-latest.json.enc`;
 const AUTO_BACKUP_INTERVAL_HOURS = 24;
 
@@ -55,13 +56,16 @@ async function buildBackupPayload(): Promise<BackupPayload> {
     const procedureIds = new Set(procedures.map(procedure => procedure.id));
     const stoneDetails = (await getAllStoneDetails()).filter(details => procedureIds.has(details.procedure_id));
     assertDatabaseOwner(user.id);
+    const rawCatalog = await getMeta('personal_procedures');
+    const personalProcedures = rawCatalog === null ? [] : validatePersonalCatalog(JSON.parse(rawCatalog));
+    assertDatabaseOwner(user.id);
     const deviceLabel = (await getMeta('device_label')) ?? 'Desconocido';
     assertDatabaseOwner(user.id);
     return {
       app: 'UroFolium', backupVersion: BACKUP_VERSION, createdAt: new Date().toISOString(),
       user: { supabaseUserId: user.id, email: user.email },
       device: { platform: Capacitor.getPlatform(), appVersion: APP_VERSION, label: deviceLabel },
-      schema: { version: CURRENT_SCHEMA_VERSION }, data: { procedures, stoneDetails },
+      schema: { version: CURRENT_SCHEMA_VERSION }, data: { procedures, stoneDetails, personalProcedures },
     };
   }, false);
 }
@@ -140,6 +144,7 @@ async function restoreBackupFromBlob(blob: Blob, passphrase?: string): Promise<n
   await replaceDatabaseContents(
     payload.data.procedures.map(procedure => migrateProcedureCatalog(procedure)),
     payload.data.stoneDetails ?? [],
+    payload.data.personalProcedures,
   );
   assertDatabaseOwner(user.id);
   if (cleanPassphrase) await savePassphrase(cleanPassphrase);

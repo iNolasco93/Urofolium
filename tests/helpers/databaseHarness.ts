@@ -151,7 +151,7 @@ const mocks: Record<string, string> = {
 
 let compiled: Promise<string> | undefined;
 async function compiledDatabase(): Promise<string> {
-  compiled ??= build({ stdin: { contents: "export * from './src/db/database'; export { createProcedure, updateProcedure, getProcedureById, getAllProcedures, getAllStoredProcedures, deleteProcedure } from './src/db/procedureRepository';", resolveDir: resolve('.'), loader: 'ts' }, write: false, bundle: true, platform: 'node', format: 'cjs',
+  compiled ??= build({ stdin: { contents: "export * from './src/db/database'; export * from './src/db/personalProcedureRepository'; export { createProcedure, updateProcedure, getProcedureById, getAllProcedures, getAllStoredProcedures, deleteProcedure } from './src/db/procedureRepository';", resolveDir: resolve('.'), loader: 'ts' }, write: false, bundle: true, platform: 'node', format: 'cjs',
     plugins: [{ name: 'database-test-adapters', setup(builder) {
       builder.onResolve({ filter: /.*/ }, args => args.path in mocks ? { path: args.path, namespace: 'test-adapter' } : undefined);
       builder.onLoad({ filter: /.*/, namespace: 'test-adapter' }, args => ({ contents: mocks[args.path], loader: 'js' }));
