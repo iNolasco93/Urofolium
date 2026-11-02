@@ -14,7 +14,7 @@ import { migrateProcedureCatalog } from '../lib/migrationReview';
 import type { BackupPayload, BackupInfo } from '../lib/types';
 
 const APP_VERSION = '1.0.0';
-const BACKUP_VERSION = 5;
+const BACKUP_VERSION = 6;
 const LATEST_FILENAME = `${APP_CONFIG.backupPrefix}-backup-latest.json.enc`;
 const AUTO_BACKUP_INTERVAL_HOURS = 24;
 

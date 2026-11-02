@@ -11,7 +11,7 @@ const time = '2026-10-18T10:00:00.000Z';
 
 export function procedure(id = 'synthetic-procedure'): Procedure {
   return { id, fecha: '2026-10-18', estado: 'realizada', nota_conocida: false, notas_revisadas: false, categoria: 'Litiasis',
-    procedimiento: 'URS', abordaje: 'Endoscópico', duracion: 30, rol: 'Cirujano',
+    procedimiento: 'URS', abordaje: 'Endoscópico', via_acceso: null, duracion: 30, rol: 'Cirujano',
     cirujano_senior: null, primer_ayudante: null, segundo_ayudante: null,
     complicaciones: null, notas: null, otro_especificar: null,
     created_at: time, updated_at: time, deleted_at: null };
@@ -184,7 +184,7 @@ export async function seedLegacyNative(harness: Awaited<ReturnType<typeof create
   for (const migration of MIGRATIONS.filter(item => item.version <= 3)) await legacy.execute(migration.sql);
   await legacy.run('INSERT OR REPLACE INTO app_meta (key,value) VALUES (?,?)', ['schema_version', '3']);
   for (const [table, row] of [['procedures', procedure()], ['stone_details', stone()]] as const) {
-    const columns = Object.keys(row).filter(key => !['estado', 'nota_conocida', 'notas_revisadas'].concat(['notas']).includes(key));
+    const columns = Object.keys(row).filter(key => !['estado', 'nota_conocida', 'notas_revisadas', 'via_acceso'].concat(['notas']).includes(key));
     const values = columns.map(key => row[key as keyof typeof row]).map(value => typeof value === 'boolean' ? Number(value) : value && typeof value === 'object' ? JSON.stringify(value) : value);
     await legacy.run(`INSERT INTO ${table} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`, values);
   }

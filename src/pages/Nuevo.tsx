@@ -14,6 +14,7 @@ import {
   getAbordajeFijo, getAbordajesDisponibles, getProcedimientoOrquiectomia,
 } from '../lib/categorias';
 import { decodeProcedureDetails, encodeProcedureDetails } from '../lib/procedureDetails';
+import { ACCESS_ROUTES, accessRouteOf, isAbdominalApproach, supportsAccessRoute } from '../lib/accessRoutes';
 import type { Procedure, StoneDetails, StoneProcedureRaw } from '../lib/types';
 
 const ORQUIECTOMIA_SIMPLE = 'Orquiectomía simple';
@@ -69,6 +70,7 @@ const EMPTY = {
   categoria: '',
   procedimiento: '',
   abordaje: '',
+  via_acceso: '',
   duracion: '',
   rol: '',
   cirujano_senior: '',
@@ -119,6 +121,7 @@ function isPotentialDuplicate(draft: ProcedureDraft, existing: Procedure): boole
     sameDuplicateValue(draft.categoria, existing.categoria) &&
     sameDuplicateValue(draft.procedimiento, existing.procedimiento) &&
     sameDuplicateValue(draft.abordaje, existing.abordaje) &&
+    sameDuplicateValue(draft.via_acceso, accessRouteOf(existing)) &&
     sameDuplicateValue(draft.rol, existing.rol) &&
     sameDuplicateValue(draft.cirujano_senior, existing.cirujano_senior) &&
     sameDuplicateValue(draft.primer_ayudante, existing.primer_ayudante) &&
@@ -146,7 +149,7 @@ function buildDuplicateWarning(duplicates: Procedure[]): string {
   const countLabel = duplicates.length === 1 ? '1 posible duplicado' : `${duplicates.length} posibles duplicados`;
 
   return [
-    `Se encontró ${countLabel} con fecha, procedimiento, abordaje, rol, equipo quirúrgico y duración similar.`,
+    `Se encontró ${countLabel} con fecha, procedimiento, abordaje, vía de acceso, rol, equipo quirúrgico y duración similar.`,
     '',
     sample,
     extra,
@@ -392,6 +395,7 @@ export default function Nuevo() {
             : formProcedure
           : '',
         abordaje: data.abordaje || '',
+        via_acceso: data.via_acceso || (data.abordaje === 'Retroperitoneal' ? 'Retroperitoneal' : ''),
         duracion: data.duracion ? String(data.duracion) : '',
         rol: data.rol || '',
         cirujano_senior: data.cirujano_senior || '',
@@ -463,6 +467,7 @@ export default function Nuevo() {
   }, [form.categoria, form.procedimiento, form.holep_thulep, form.tecnica_especificar, personal]);
 
   const set = (k: string, v: string | boolean) => setForm(f => ({ ...f, [k]: v }));
+  const setApproach = (value: string) => setForm(f => ({ ...f, abordaje: value, via_acceso: isAbdominalApproach(value) ? f.via_acceso : '' }));
 
   const setStoneProcedure = (key: StoneProcedureKey, value: boolean) => setForm(f => {
     const next = { ...f, [key]: value };
@@ -486,6 +491,7 @@ export default function Nuevo() {
     categoria: cat,
     procedimiento: '',
     abordaje: '',
+    via_acceso: '',
     otro_especificar: '',
     derivacion_urinaria: '',
     derivacion_otra: '',
@@ -502,6 +508,7 @@ export default function Nuevo() {
     ...f,
     procedimiento,
     abordaje: procedimiento === f.procedimiento ? f.abordaje : '',
+    via_acceso: procedimiento === f.procedimiento ? f.via_acceso : '',
     otro_especificar: procedimiento === f.procedimiento
       && (procedimiento === 'Otros' || PROCEDIMIENTOS_TRAUMA.has(procedimiento))
       ? f.otro_especificar
@@ -527,6 +534,7 @@ export default function Nuevo() {
       grupo_prostatico: grupo,
       procedimiento,
       abordaje: procedimiento === f.procedimiento ? f.abordaje : '',
+      via_acceso: procedimiento === f.procedimiento ? f.via_acceso : '',
       otro_especificar: procedimiento === 'Otros' ? f.otro_especificar : '',
       derivacion_urinaria: '',
       derivacion_otra: '',
@@ -639,6 +647,11 @@ export default function Nuevo() {
       setError('Selecciona el abordaje.');
       return;
     }
+    const routeEligible = !personal && supportsAccessRoute(form.categoria, procFinal) && isAbdominalApproach(abordajeFinal);
+    if (!programada && routeEligible && !form.via_acceso) {
+      setError('Selecciona la vía de acceso.');
+      return;
+    }
 
     setLoading(true);
 
@@ -650,6 +663,7 @@ export default function Nuevo() {
       categoria: form.categoria,
       procedimiento: procFinal,
       abordaje: abordajeFinal,
+      via_acceso: form.via_acceso ? form.via_acceso as Procedure['via_acceso'] : null,
       duracion: form.duracion ? parseInt(form.duracion, 10) : null,
       rol: form.rol,
       cirujano_senior: form.cirujano_senior.trim() || null,
@@ -713,7 +727,10 @@ export default function Nuevo() {
   const categoriasDisponibles = form.categoria && !configuredCategories.includes(form.categoria)
     ? [form.categoria, ...configuredCategories]
     : configuredCategories;
-  const configuredApproaches = personal?.abordajes ?? getAbordajesDisponibles(form.categoria, form.procedimiento);
+  const routeEligible = !personal && supportsAccessRoute(form.categoria, form.procedimiento);
+  const configuredApproaches = (personal?.abordajes ?? getAbordajesDisponibles(form.categoria, form.procedimiento))
+    .filter(value => !routeEligible || value !== 'Retroperitoneal');
+  const showAccessRoute = routeEligible && isAbdominalApproach(form.abordaje);
   const abordajesDisponibles = form.abordaje && !configuredApproaches.includes(form.abordaje)
     ? [form.abordaje, ...configuredApproaches]
     : configuredApproaches;
@@ -765,9 +782,13 @@ export default function Nuevo() {
           </select></div>}
         {form.procedimiento === 'Otros' && <div className="form-group"><label htmlFor="otros-programada">Descripción *</label><input id="otros-programada" value={form.otro_especificar} onChange={e => set('otro_especificar', e.target.value)} required /></div>}
         <div className="form-group"><label htmlFor="abordaje-programada">Abordaje (opcional)</label>
-          <select id="abordaje-programada" value={form.abordaje} disabled={!form.procedimiento && !procedimientoLitiasis} onChange={e => set('abordaje', e.target.value)}>
+          <select id="abordaje-programada" value={form.abordaje} disabled={!form.procedimiento && !procedimientoLitiasis} onChange={e => setApproach(e.target.value)}>
             <option value="">Sin indicar</option>{(isLitiasis ? personalLitiasis ? abordajesDisponibles : (procedimientoLitiasis === 'ECIRS' ? ['Endoscópico', 'Percutáneo'] : [calcularAbordajeLitiasis(procedimientoLitiasis, '')].filter(Boolean)) : abordajesDisponibles).map(value => <option key={value} value={value}>{value}</option>)}
           </select></div>
+        {showAccessRoute && <div className="form-group"><label htmlFor="via-programada">Vía de acceso (opcional)</label>
+          <select id="via-programada" value={form.via_acceso} onChange={e => set('via_acceso', e.target.value)}>
+            <option value="">Sin indicar</option>{ACCESS_ROUTES.map(value => <option key={value} value={value}>{value}</option>)}
+          </select></div>}
         <div className="form-group"><label htmlFor="notas-programada">Notas (opcional)</label>
           <textarea id="notas-programada" value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value, nota_conocida: true }))} placeholder="Detalles sin datos identificativos" /></div>
         <button type="submit" className="btn-primary" disabled={loading}>{loading ? 'Guardando...' : 'Guardar cirugía programada'}</button>
@@ -1209,7 +1230,7 @@ export default function Nuevo() {
                 <p style={{ fontWeight: 500, fontSize: 14, marginBottom: 6 }}>Abordaje *</p>
                 <select
                   value={form.abordaje}
-                  onChange={e => set('abordaje', e.target.value)}
+                  onChange={e => setApproach(e.target.value)}
                   disabled={!form.procedimiento || abordajePendienteDetalle || abordajeBloqueado}
                   required
                 >
@@ -1222,6 +1243,12 @@ export default function Nuevo() {
                 <input type="number" value={form.duracion} onChange={e => set('duracion', e.target.value)} min="0" />
               </div>
             </div>
+            {showAccessRoute && <div className="form-group">
+              <label htmlFor="via-realizada">Vía de acceso *</label>
+              <select id="via-realizada" value={form.via_acceso} onChange={e => set('via_acceso', e.target.value)} required>
+                <option value="">Seleccionar vía</option>{ACCESS_ROUTES.map(value => <option key={value} value={value}>{value}</option>)}
+              </select>
+            </div>}
           </>
         )}
 

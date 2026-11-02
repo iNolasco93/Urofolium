@@ -25,12 +25,13 @@ import {
   type ResidencyYearKey,
 } from '../lib/residency';
 import type { Procedure } from '../lib/types';
+import { accessRouteOf } from '../lib/accessRoutes';
 
 const COLORS = ['#1f4e79', '#2a9d8f', '#e76f51', '#0f766e', '#4f8cc9', '#f2a541', '#6c7a89', '#5b7cfa'];
 
 type CountDatum = { name: string; value: number };
 type RoleStackDatum = { name: string; cirujano: number; ayudante: number; total: number };
-type StatsFilterType = 'month' | 'category' | 'procedure' | 'litiasisProcedure' | 'approach' | 'role' | 'senior' | 'threeSurgeonProcedure';
+type StatsFilterType = 'month' | 'category' | 'procedure' | 'litiasisProcedure' | 'approach' | 'accessRoute' | 'role' | 'senior' | 'threeSurgeonProcedure';
 type StatsFilter = { type: StatsFilterType; value: string; label: string };
 
 export default function EstadisticasPage() {
@@ -108,6 +109,7 @@ export default function EstadisticasPage() {
   const selectedProcedure = getVisibleFilterValue(activeFilters, selectedFilter, 'procedure');
   const selectedLitiasisProcedure = getVisibleFilterValue(activeFilters, selectedFilter, 'litiasisProcedure');
   const selectedApproach = getVisibleFilterValue(activeFilters, selectedFilter, 'approach');
+  const selectedAccessRoute = getVisibleFilterValue(activeFilters, selectedFilter, 'accessRoute');
   const selectedRole = getVisibleFilterValue(activeFilters, selectedFilter, 'role');
   const selectedSenior = getVisibleFilterValue(activeFilters, selectedFilter, 'senior');
   const selectedThreeSurgeonProcedure = getVisibleFilterValue(activeFilters, selectedFilter, 'threeSurgeonProcedure');
@@ -239,6 +241,14 @@ export default function EstadisticasPage() {
               onSelect={item => handleFilterTap({ type: 'approach', value: item.name, label: `Abordaje: ${item.name}` })}
             />
           </ChartCard>
+
+          {stats.porViaAcceso.length > 0 && <ChartCard title="Por vía de acceso indicada">
+            <PieBlock
+              data={stats.porViaAcceso}
+              selectedName={selectedAccessRoute}
+              onSelect={item => handleFilterTap({ type: 'accessRoute', value: item.name, label: `Vía: ${item.name}` })}
+            />
+          </ChartCard>}
 
           <ChartCard title="Por rol">
             <PieBlock
@@ -464,6 +474,8 @@ function matchesStatsFilter(procedure: Procedure, filter: StatsFilter): boolean 
       return procedure.categoria === 'Litiasis' && procedure.procedimiento === filter.value;
     case 'approach':
       return procedure.abordaje === filter.value;
+    case 'accessRoute':
+      return accessRouteOf(procedure) === filter.value;
     case 'role':
       return procedure.rol === filter.value;
     case 'senior':
@@ -483,6 +495,7 @@ function buildStats(procedures: Procedure[]) {
     topProcedimientos: countByRole(procedures, p => p.procedimiento).slice(0, 10),
     litiasisPorProcedimiento: buildLitiasisProcedureStats(procedures),
     porAbordaje: countBy(procedures, p => p.abordaje),
+    porViaAcceso: countBy(procedures.filter(p => accessRouteOf(p)), p => accessRouteOf(p) ?? ''),
     porRol: countBy(procedures, p => p.rol),
     topSeniors: countByRole(procedures.filter(p => !!p.cirujano_senior), p => p.cirujano_senior ?? 'Sin dato').slice(0, 10),
     cirugiasTresCirujanos: countByRole(procedures.filter(isThreeSurgeonCase), p => p.procedimiento).slice(0, 10),

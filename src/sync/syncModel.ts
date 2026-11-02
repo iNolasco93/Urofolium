@@ -1,7 +1,7 @@
 import type { Procedure, StoneDetails } from '../lib/types';
 
 export const SHARED_FIELDS = [
-  'id', 'fecha', 'estado', 'notas', 'nota_conocida', 'notas_revisadas', 'categoria', 'procedimiento', 'abordaje', 'duracion', 'rol',
+  'id', 'fecha', 'estado', 'notas', 'nota_conocida', 'notas_revisadas', 'categoria', 'procedimiento', 'abordaje', 'via_acceso', 'duracion', 'rol',
   'cirujano_senior', 'primer_ayudante', 'segundo_ayudante', 'complicaciones',
   'otro_especificar', 'created_at', 'updated_at', 'deleted_at',
 ] as const;
@@ -38,7 +38,7 @@ function boolean(value: unknown, nullable = false): void {
 export function sharedProcedure(procedure: Procedure): SharedProcedure {
   // An explicit allowlist is also the wire format: never spread a local record here.
   const normalized = { ...procedure, estado: procedure.estado ?? 'realizada', notas: procedure.notas ?? null,
-    nota_conocida: procedure.nota_conocida ?? !!procedure.notas , notas_revisadas: procedure.notas_revisadas ?? false };
+    nota_conocida: procedure.nota_conocida ?? !!procedure.notas , notas_revisadas: procedure.notas_revisadas ?? false, via_acceso: procedure.via_acceso ?? (procedure.abordaje === 'Retroperitoneal' ? 'Retroperitoneal' : null) };
   return Object.fromEntries(SHARED_FIELDS.map(key => [key, normalized[key]])) as unknown as SharedProcedure;
 }
 export function casesFromLocal(procedures: Procedure[], stones: StoneDetails[]): Entries {
@@ -57,10 +57,13 @@ export function validateCases(input: unknown): Entries {
     const item = object(value);
     const original = object(item.procedure);
     const expected = [...SHARED_FIELDS].sort().join();
-    const legacy = SHARED_FIELDS.filter(key => !['estado', 'notas', 'nota_conocida', 'notas_revisadas'].includes(key)).sort().join();
+    const legacy = SHARED_FIELDS.filter(key => !['estado', 'notas', 'nota_conocida', 'notas_revisadas', 'via_acceso'].includes(key)).sort().join();
+    const withoutRoute = SHARED_FIELDS.filter(key => key !== 'via_acceso').sort().join();
     const keys = Object.keys(original).sort().join();
-    if (Object.keys(item).sort().join() !== 'procedure,stone' || (keys !== expected && keys !== legacy) || original.id !== id || !id.trim()) throw new Error('La copia contiene un caso no válido.');
-    const p = keys === legacy ? { ...original, estado: 'realizada', notas: null, nota_conocida: false, notas_revisadas: false } : original;
+    if (Object.keys(item).sort().join() !== 'procedure,stone' || (keys !== expected && keys !== withoutRoute && keys !== legacy) || original.id !== id || !id.trim()) throw new Error('La copia contiene un caso no válido.');
+    const previous: Record<string, unknown> = keys === legacy ? { ...original, estado: 'realizada', notas: null, nota_conocida: false, notas_revisadas: false } : original;
+    const p: Record<string, unknown> = { ...previous, via_acceso: previous.via_acceso ?? (previous.abordaje === 'Retroperitoneal' ? 'Retroperitoneal' : null) };
+    if (p.via_acceso !== null && p.via_acceso !== 'Transperitoneal' && p.via_acceso !== 'Retroperitoneal') throw new Error('La vía de acceso no es válida.');
     if (p.estado !== 'programada' && p.estado !== 'realizada') throw new Error('Estado de cirugía no válido.');
     string(p.notas, true); boolean(p.nota_conocida); boolean(p.notas_revisadas);
     for (const key of ['id', 'fecha', 'categoria', 'procedimiento', 'abordaje', 'rol']) string(p[key]);

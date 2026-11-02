@@ -8,6 +8,7 @@ import { getAllProcedures, deleteProcedure } from '../db/procedureRepository';
 import { getAllStoneDetails } from '../db/stoneRepository';
 import { assertDatabaseOwner, getDatabaseOwner, runLocalWrite } from '../db/database';
 import { createProcedureWorkbook } from '../lib/procedureWorkbook';
+import { formatApproach } from '../lib/accessRoutes';
 import { getResidencyPeriod, RESIDENCY_YEAR_KEYS, type ResidencyYearKey } from '../lib/residency';
 import type { Procedure } from '../lib/types';
 import * as XLSX from 'xlsx';
@@ -53,6 +54,7 @@ export default function Listado() {
       const term = normalizeSearch(search);
       const searchable = [
         p.procedimiento,
+        formatApproach(p),
         p.cirujano_senior,
         p.rol,
       ].map(value => normalizeSearch(value ?? ''));
@@ -161,7 +163,7 @@ export default function Listado() {
               <div style={{ cursor: 'pointer', flex: 1 }} onClick={() => navigate(`/editar/${p.id}`)}>
                 <div style={{ fontWeight: 600, marginBottom: 4 }}>{p.procedimiento}</div>
                 <div style={{ fontSize: 13, color: 'var(--text2)' }}>
-                  {String(p.fecha).slice(0, 10)} • {p.categoria}
+                  {String(p.fecha).slice(0, 10)} • {p.categoria}{p.abordaje ? ` • ${formatApproach(p)}` : ''}
                 </div>
                 {p.cirujano_senior && (
                   <div style={{ fontSize: 13, color: 'var(--text2)', marginTop: 4 }}>

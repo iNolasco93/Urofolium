@@ -310,7 +310,7 @@ function mergeState(state: WebState, procedures: Procedure[], stones: StoneDetai
   state.meta.last_data_changed_at = new Date().toISOString();
 }
 
-const procedureColumns = ['id', 'fecha', 'estado', 'nota_conocida', 'notas_revisadas', 'categoria', 'procedimiento', 'abordaje', 'duracion', 'rol', 'cirujano_senior', 'primer_ayudante', 'segundo_ayudante', 'complicaciones', 'notas', 'otro_especificar', 'created_at', 'updated_at', 'deleted_at'] as const;
+const procedureColumns = ['id', 'fecha', 'estado', 'nota_conocida', 'notas_revisadas', 'categoria', 'procedimiento', 'abordaje', 'via_acceso', 'duracion', 'rol', 'cirujano_senior', 'primer_ayudante', 'segundo_ayudante', 'complicaciones', 'notas', 'otro_especificar', 'created_at', 'updated_at', 'deleted_at'] as const;
 const stoneColumns = ['procedure_id', 'lateralidad', 'procedimiento_raw', 'nefromax_fr', 'amplatz_fr', 'enhebrado', 'tamanio_mm', 'tutor_interno', 'drenaje_nefrostomico', 'sonda_fr', 'etiqueta_drenaje', 'stonefree', 'created_at', 'updated_at'] as const;
 function insertStatement(table: string, columns: readonly string[]): string {
   return `INSERT INTO ${table} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')}) ON CONFLICT(${columns[0]}) DO UPDATE SET ${columns.slice(1).map(column => `${column}=excluded.${column}`).join(',')}`;

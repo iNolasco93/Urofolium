@@ -10,6 +10,7 @@ export interface Procedure {
   categoria: string;
   procedimiento: string;
   abordaje: string;
+  via_acceso?: 'Transperitoneal' | 'Retroperitoneal' | null;
   duracion: number | null;        // minutos
   rol: string;
   cirujano_senior: string | null;

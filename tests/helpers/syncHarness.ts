@@ -6,7 +6,7 @@ Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: tr
 export const KEY = 'synthetic-sync-secret-for-tests';
 export const time = '2026-10-30T10:00:00.000Z';
 export function surgery(id = 'case-1') {
-  return { id, fecha: '2026-10-30', estado: 'realizada' as const, notas: null as string | null, nota_conocida: false, notas_revisadas: false, categoria: 'Litiasis', procedimiento: 'RIRS', abordaje: 'Endoscópico', duracion: 60,
+  return { id, fecha: '2026-10-30', estado: 'realizada' as const, notas: null as string | null, nota_conocida: false, notas_revisadas: false, categoria: 'Litiasis', procedimiento: 'RIRS', abordaje: 'Endoscópico', via_acceso: null, duracion: 60,
     rol: 'Cirujano principal', cirujano_senior: 'Senior', primer_ayudante: null, segundo_ayudante: null,
     complicaciones: null, otro_especificar: null, created_at: time, updated_at: time, deleted_at: null as string | null };
 }

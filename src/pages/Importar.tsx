@@ -8,6 +8,7 @@ import { getAllStoneDetails } from '../db/stoneRepository';
 import { assertDatabaseOwner, getDatabaseOwner, mergeDatabaseContents, getDataStamp } from '../db/database';
 import { REQUIRED_IMPORT_COLUMNS, getProcedureWorkbookColumns, materializeProcedureImport, readProcedureWorkbook, type ProcedureImportRow } from '../lib/procedureWorkbook';
 import { CATEGORIAS, ROLES, PROCEDIMIENTOS_ORQUIECTOMIA, getAbordajesDisponibles } from '../lib/categorias';
+import { ACCESS_ROUTES, supportsAccessRoute } from '../lib/accessRoutes';
 import type { Procedure } from '../lib/types';
 
 type RowPreview = ProcedureImportRow;
@@ -56,7 +57,7 @@ function createTemplateRow(values: Record<string, string>): Record<string, strin
 }
 
 function getTemplateApproaches(categoria: string, procedimiento: string): string {
-  return getAbordajesDisponibles(categoria, procedimiento).join(', ');
+  return getAbordajesDisponibles(categoria, procedimiento).filter(value => !supportsAccessRoute(categoria, procedimiento) || value !== 'Retroperitoneal').join(', ');
 }
 
 function buildTemplateRows(): Record<string, string>[] {
@@ -85,6 +86,18 @@ function buildTemplateRows(): Record<string, string>[] {
       ayudante: 'Primer ayudante',
       complicaciones: 'No',
     }),
+    createTemplateRow({
+      fecha: '2026-07-03',
+      estado: 'realizada',
+      categoria: 'Patología renal',
+      procedimiento: 'Suprarrenalectomía',
+      abordaje: 'Robótico',
+      via_acceso: 'Retroperitoneal',
+      duracion: '90',
+      rol: 'Observador',
+      cirujano_senior: 'Cirujano senior',
+      complicaciones: 'No',
+    }),
   ];
 }
 
@@ -98,7 +111,8 @@ function buildInstructions(): string[][] {
     ['5. Usa una sola columna ayudante. UroFolium la guardará como primer_ayudante o segundo_ayudante según tu rol.'],
     ['6. También se aceptan las plantillas antiguas. Los campos opcionales que no aparecen como columnas se conservan al actualizar un id existente; una celda vacía borra ese campo.'],
     ['7. Fecha aceptada: YYYY-MM-DD o DD/MM/YYYY. El estado puede ser programada o realizada; si se omite se conserva el registro existente o se considera realizada.'],
-    ['7a. Para una cirugía programada puedes dejar vacíos abordaje y rol.'],
+    ['7a. Para una cirugía programada puedes dejar vacíos abordaje, vía de acceso y rol.'],
+    ['7b. En cirugía renal o ureteral seleccionada, y en extracción de donante vivo, via_acceso distingue Transperitoneal y Retroperitoneal.'],
     ['8. Revisa la vista previa antes de confirmar la importación.'],
     ['9. procedimiento contiene el nombre final legible. Para una reimportación exacta, conserva procedimiento_base, tipo_derivacion_urinaria, tecnica y tipo_protesis.'],
     ['10. Cistectomía radical requiere tipo_derivacion_urinaria. En Biopsia testicular usa TESE o MicroTESE con abordaje Abierto, y TESA con abordaje Percutáneo.'],
@@ -121,7 +135,7 @@ function buildInstructions(): string[][] {
 function buildValidValuesRows(): string[][] {
   const rows: string[][] = [
     ['Categorías, procedimientos y abordajes'],
-    ['categoria', 'procedimiento_base', 'abordajes_validos', 'tipo_derivacion_urinaria', 'tecnica', 'tipo_protesis'],
+    ['categoria', 'procedimiento_base', 'abordajes_validos', 'tipo_derivacion_urinaria', 'tecnica', 'tipo_protesis', 'vias_validas'],
   ];
 
   Object.entries(CATEGORIAS).forEach(([categoria, procedimientos]) => {
@@ -172,6 +186,10 @@ function buildValidValuesRows(): string[][] {
       rows.push([categoria, procedimiento, getTemplateApproaches(categoria, procedimiento)]);
     });
   });
+
+  for (const row of rows) {
+    if (row.length >= 3 && supportsAccessRoute(row[0], row[1])) row[6] = ACCESS_ROUTES.join(', ');
+  }
 
   rows.push(
     [],

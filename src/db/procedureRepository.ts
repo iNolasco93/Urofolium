@@ -19,6 +19,7 @@ function rowToProcedure(row: Record<string, unknown>): Procedure {
     categoria: row.categoria as string,
     procedimiento: row.procedimiento as string,
     abordaje: row.abordaje as string,
+    via_acceso: (row.via_acceso as Procedure['via_acceso']) ?? (row.abordaje === 'Retroperitoneal' ? 'Retroperitoneal' : null),
     duracion: row.duracion != null ? Number(row.duracion) : null,
     rol: row.rol as string,
     cirujano_senior: (row.cirujano_senior as string) ?? null,
@@ -101,7 +102,7 @@ async function updateProcedureUnlocked(
   const db = getDB();
   const now = new Date().toISOString();
 
-  const columns = ['fecha', 'estado', 'nota_conocida', 'notas_revisadas', 'categoria', 'procedimiento', 'abordaje', 'duracion', 'rol', 'cirujano_senior', 'primer_ayudante', 'segundo_ayudante', 'complicaciones', 'notas', 'otro_especificar', 'deleted_at'] as const;
+  const columns = ['fecha', 'estado', 'nota_conocida', 'notas_revisadas', 'categoria', 'procedimiento', 'abordaje', 'via_acceso', 'duracion', 'rol', 'cirujano_senior', 'primer_ayudante', 'segundo_ayudante', 'complicaciones', 'notas', 'otro_especificar', 'deleted_at'] as const;
   const changed = columns.filter(column => data[column] !== undefined);
   const values = changed.map(column => column === 'nota_conocida' || column === 'notas_revisadas' ? Number(data[column]) : data[column] ?? null);
   await db.run(

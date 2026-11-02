@@ -67,6 +67,13 @@ export const MIGRATIONS: { version: number; sql: string }[] = [
       ALTER TABLE procedures ADD COLUMN notas TEXT;
     `,
   },
+  {
+    version: 5,
+    sql: `
+      ALTER TABLE procedures ADD COLUMN via_acceso TEXT;
+      UPDATE procedures SET via_acceso = 'Retroperitoneal' WHERE abordaje = 'Retroperitoneal';
+    `,
+  },
 ];
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

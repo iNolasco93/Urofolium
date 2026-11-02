@@ -261,7 +261,7 @@ test('an existing version-3 native account migrates its records and preserves no
   for (const migration of MIGRATIONS.filter(item => item.version <= 3)) await connection.execute(migration.sql);
   await connection.run("INSERT OR REPLACE INTO app_meta (key,value) VALUES (?,?)", ['schema_version', '3']);
   const original = procedure();
-  const columns = Object.keys(original).filter(key => !['estado', 'nota_conocida', 'notas_revisadas', 'notas'].includes(key));
+  const columns = Object.keys(original).filter(key => !['estado', 'nota_conocida', 'notas_revisadas', 'notas', 'via_acceso'].includes(key));
   const values = columns.map(key => original[key as keyof typeof original]).map(value => typeof value === 'boolean' ? Number(value) : value);
   await connection.run(`INSERT INTO procedures (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`, values);
   await sqlite.closeConnection(name);
@@ -314,4 +314,22 @@ test('eliminar y volver a añadir un procedimiento conserva las cirugías y su c
   assert.equal(catalog[0].archivedAt, null);
   assert.equal((await api.getAllProcedures())[0].procedimiento, item.nombre);
   assert.equal(api.readWebStoneDetails()[0].procedure_id, procedure().id);
+});
+
+
+test('native migration retains a legacy retroperitoneal route without assuming laparoscopy', async () => {
+  const { api, sqlite } = await createHarness('ios');
+  const name = 'urofolium_account_' + Buffer.from('account-a').toString('hex');
+  const connection = await sqlite.createConnection(name, true, 'secret');
+  for (const migration of MIGRATIONS.filter(item => item.version <= 4)) await connection.execute(migration.sql);
+  await connection.run('INSERT OR REPLACE INTO app_meta (key,value) VALUES (?,?)', ['schema_version', '4']);
+  const original = { ...procedure(), categoria: 'Patología renal', procedimiento: 'Nefrectomía radical', abordaje: 'Retroperitoneal' };
+  const columns = Object.keys(original).filter(key => key !== 'via_acceso');
+  const values = columns.map(key => original[key as keyof typeof original]).map(value => typeof value === 'boolean' ? Number(value) : value);
+  await connection.run(`INSERT INTO procedures (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`, values);
+  await sqlite.closeConnection(name);
+  await api.initDatabase('account-a');
+  const saved = await api.getProcedureById(original.id);
+  assert.equal(saved?.abordaje, 'Retroperitoneal');
+  assert.equal(saved?.via_acceso, 'Retroperitoneal');
 });

@@ -1,5 +1,6 @@
 import { validatePersonalCatalog, type PersonalProcedure } from './personalProcedures';
 import { fechaLocal } from './fechas';
+import { ACCESS_ROUTES, isAbdominalApproach } from './accessRoutes';
 import * as XLSX from 'xlsx';
 import type { Procedure, StoneDetails, StoneProcedureRaw } from './types';
 import {
@@ -21,7 +22,7 @@ export interface ProcedureImportRow {
 
 const PROCEDURE_COLUMNS = [
   'id', 'fecha', 'estado', 'categoria', 'procedimiento', 'procedimiento_base',
-  'tipo_derivacion_urinaria', 'tecnica', 'tipo_protesis', 'abordaje', 'duracion', 'rol',
+  'tipo_derivacion_urinaria', 'tecnica', 'tipo_protesis', 'abordaje', 'via_acceso', 'duracion', 'rol',
   'cirujano_senior', 'primer_ayudante', 'segundo_ayudante', 'complicaciones', 'notas',
   'otro_especificar', 'created_at', 'updated_at', 'deleted_at',
 ];
@@ -32,7 +33,7 @@ const STONE_COLUMNS = [
   'stone_etiqueta_drenaje', 'stone_stonefree', 'stone_created_at', 'stone_updated_at',
 ];
 const ALIASES: Record<string, string> = {
-  mi_rol: 'rol', senior: 'cirujano_senior',
+  mi_rol: 'rol', senior: 'cirujano_senior', via_de_acceso: 'via_acceso',
   duracion_min: 'duracion', 'duracion_(min)': 'duracion', ayudante_adicional: 'ayudante',
 };
 
@@ -222,7 +223,14 @@ export function parseProcedureWorkbook(workbook: XLSX.WorkBook): {
       procedimiento: parsedProcedure.procedimiento,
       abordaje: String(source.abordaje ?? '').trim(),
       rol: String(source.rol ?? '').trim(),
+      ...(has('via_acceso') ? { via_acceso: (String(source.via_acceso ?? '').trim() || null) as Procedure['via_acceso'] } : {}),
     };
+    if (values.via_acceso && !ACCESS_ROUTES.includes(values.via_acceso as typeof ACCESS_ROUTES[number])) {
+      errors.push(`Fila ${index + 2}: vía de acceso no válida.`);
+    }
+    if (values.via_acceso && !isAbdominalApproach(values.abordaje)) {
+      errors.push(`Fila ${index + 2}: la vía de acceso no corresponde a este procedimiento.`);
+    }
     if (has('estado') && !blank(source.estado)) {
       const estado = String(source.estado).trim().toLowerCase();
       if (estado !== 'programada' && estado !== 'realizada') errors.push(`Fila ${index + 2}: estado debe ser programada o realizada.`);
@@ -310,7 +318,7 @@ export function materializeProcedureImport(
     const id = row.values.id || row.generatedId;
     const existing = byId.get(id);
     const procedureDraft: Procedure = {
-      estado: 'realizada', notas: null, nota_conocida: false, notas_revisadas: false,
+      estado: 'realizada', notas: null, nota_conocida: false, notas_revisadas: false, via_acceso: null,
       duracion: null, cirujano_senior: null, primer_ayudante: null, segundo_ayudante: null,
       complicaciones: null, otro_especificar: null, deleted_at: null,
       created_at: now, ...existing, updated_at: now, ...row.values, id,
@@ -321,6 +329,7 @@ export function materializeProcedureImport(
       throw new Error(`La cirugía ${id} está marcada como realizada con una fecha futura.`);
     }
     const procedure = migrateProcedureCatalog(procedureDraft, now);
+    if (!procedure.via_acceso && procedure.abordaje === 'Retroperitoneal') procedure.via_acceso = 'Retroperitoneal';
     if (row.stone === null) removeStoneIds.push(id);
     else if (row.stone !== undefined) {
       const existingStone = stoneById.get(id);

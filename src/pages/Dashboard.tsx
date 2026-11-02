@@ -1,4 +1,5 @@
 import { fechaLocal } from '../lib/fechas';
+import { formatApproach } from '../lib/accessRoutes';
 import { useRemoteRevision } from '../sync/syncManager';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -64,7 +65,7 @@ export default function Dashboard({ user }: DashboardProps) {
         {pendientes.map(p => <div className="card" key={p.id} style={{ marginBottom: 8 }}>
           <strong>{p.procedimiento}</strong>
           <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--text2)' }}>{p.fecha < fechaLocal() ? 'Pendiente de completar' : p.fecha === fechaLocal() ? 'Hoy' : 'Programada'}</span>
-          <p style={{ fontSize: 13, margin: '6px 0' }}>{p.fecha} · {p.categoria}{p.abordaje ? ` · ${p.abordaje}` : ''}</p>
+          <p style={{ fontSize: 13, margin: '6px 0' }}>{p.fecha} · {p.categoria}{p.abordaje ? ` · ${formatApproach(p)}` : ''}</p>
           {p.notas && <p style={{ whiteSpace: 'pre-wrap', fontSize: 13 }}>{p.notas}</p>}
           <button className="btn-primary" onClick={() => navigate(`/editar/${p.id}?completar=1`)}>Completar cirugía</button>
         </div>)}
@@ -93,7 +94,7 @@ export default function Dashboard({ user }: DashboardProps) {
                 <div>
                   <div style={{ fontWeight: 600, marginBottom: 4 }}>{p.procedimiento}</div>
                   <div style={{ fontSize: 13, color: 'var(--text2)' }}>
-                    {String(p.fecha).slice(0, 10)} • {p.categoria} • {p.abordaje}
+                    {String(p.fecha).slice(0, 10)} • {p.categoria} • {formatApproach(p)}
                   </div>
                   {p.cirujano_senior && <div style={{ fontSize: 13, color: 'var(--text2)' }}>Senior: {p.cirujano_senior}</div>}
                 </div>

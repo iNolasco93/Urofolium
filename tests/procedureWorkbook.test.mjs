@@ -19,7 +19,7 @@ const { createProcedureWorkbook, getProcedureWorkbookColumns, parseProcedureWork
 const timestamp = '2026-07-01T09:10:11.123Z';
 const procedure = {
   id: 'case-1', fecha: '2026-07-01', estado: 'realizada', nota_conocida: true, notas_revisadas: false, categoria: 'Litiasis', procedimiento: 'ECIRS',
-  abordaje: 'Percutáneo', duracion: 0, rol: 'Cirujano principal', cirujano_senior: 'Cirujano sénior',
+  abordaje: 'Percutáneo', via_acceso: null, duracion: 0, rol: 'Cirujano principal', cirujano_senior: 'Cirujano sénior',
   primer_ayudante: null, segundo_ayudante: 'Ayudante de prueba', complicaciones: 'No', notas: null,
   otro_especificar: null, created_at: timestamp, updated_at: '2026-07-02T10:11:12.456Z', deleted_at: null,
 };
@@ -43,9 +43,9 @@ function importWorkbook(book, existing = [], existingStone = []) {
 }
 
 test('workbook columns contain only the UroFolium data model', () => {
-  assert.deepEqual(getProcedureWorkbookColumns().slice(0, 12), [
+  assert.deepEqual(getProcedureWorkbookColumns().slice(0, 13), [
     'id', 'fecha', 'estado', 'categoria', 'procedimiento', 'procedimiento_base',
-    'tipo_derivacion_urinaria', 'tecnica', 'tipo_protesis', 'abordaje', 'duracion', 'rol',
+    'tipo_derivacion_urinaria', 'tecnica', 'tipo_protesis', 'abordaje', 'via_acceso', 'duracion', 'rol',
   ]);
   assert.equal(getProcedureWorkbookColumns().includes('referencia'), false);
   assert.equal(getProcedureWorkbookColumns().includes('notas'), true);
@@ -191,4 +191,16 @@ test('exportación y reimportación conservan el catálogo personal y sus opcion
   const sheet = book.Sheets['Mis procedimientos'];
   sheet.D2.v = 'invalid';
   assert.throws(() => readProcedureWorkbook(XLSX.write(book, { type: 'array', bookType: 'xlsx' })), /inválidos/);
+});
+
+
+test('Excel exports and reimports the surgical method and access route separately', () => {
+  const operation = { ...procedure, id: 'route-case', categoria: 'Patología renal', procedimiento: 'Suprarrenalectomía', abordaje: 'Robótico', via_acceso: 'Retroperitoneal' };
+  const book = createProcedureWorkbook([operation], []);
+  const sheet = XLSX.utils.sheet_to_json(book.Sheets.UroFolium);
+  assert.equal(sheet[0].abordaje, 'Robótico');
+  assert.equal(sheet[0].via_acceso, 'Retroperitoneal');
+  const result = importWorkbook(book);
+  assert.equal(result.procedures[0].abordaje, 'Robótico');
+  assert.equal(result.procedures[0].via_acceso, 'Retroperitoneal');
 });

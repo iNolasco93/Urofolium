@@ -128,7 +128,7 @@ test('a remote rollback is blocked instead of silently replacing current data', 
 test('a version-1 case is upgraded remotely and stale older writers cannot replace it', async () => {
   const server = new Server();
   const p = surgery() as Record<string, unknown>;
-  for (const field of ['estado', 'notas', 'nota_conocida', 'notas_revisadas']) delete p[field];
+  for (const field of ['estado', 'notas', 'nota_conocida', 'notas_revisadas', 'via_acceso']) delete p[field];
   const legacy = { 'case-1': { procedure: p, stone: stone() } };
   const oldEnvelope = await encryptSnapshot(legacy, KEY, 'account-a', 'cases', 1);
   server.accounts.set('account-a', { cases: { revision: 1, envelope: oldEnvelope } });
@@ -144,4 +144,21 @@ test('a version-1 case is upgraded remotely and stale older writers cannot repla
   const oldKeys = Object.keys(p).sort().join();
   assert.notEqual(Object.keys(decoded['case-1'].procedure).sort().join(), oldKeys);
   assert.equal(await server.commit('account-a', { cases: 1 }, { cases: oldEnvelope }), null);
+});
+
+
+test('the access route and surgical approach travel together in the encrypted case', async () => {
+  const server = new Server();
+  const operation = { ...surgery(), categoria: 'Patología renal', procedimiento: 'Suprarrenalectomía', abordaje: 'Robótico', via_acceso: 'Retroperitoneal' as const };
+  const first = new Device(server, { cases: { 'case-1': { procedure: operation, stone: null } } });
+  first.key = KEY;
+  await first.engine.sync();
+  assert.equal(first.status.phase, 'ready');
+  assert.equal(JSON.stringify(server.accounts.get('account-a')).includes('Retroperitoneal'), false);
+  const second = new Device(server);
+  await second.engine.pair(KEY);
+  assert.equal(second.status.phase, 'ready');
+  const received = (second.data.cases['case-1'] as CaseData).procedure;
+  assert.equal(received.abordaje, 'Robótico');
+  assert.equal(received.via_acceso, 'Retroperitoneal');
 });

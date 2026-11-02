@@ -73,6 +73,11 @@ function procedure(value: unknown, index: number, schemaVersion: number): Proced
     categoria: text(row.categoria, `${path}.categoria`),
     procedimiento: text(row.procedimiento, `${path}.procedimiento`),
     abordaje: text(row.abordaje, `${path}.abordaje`),
+    via_acceso: row.via_acceso === undefined
+      ? (row.abordaje === 'Retroperitoneal' ? 'Retroperitoneal' : null)
+      : row.via_acceso === null ? null
+        : row.via_acceso === 'Transperitoneal' || row.via_acceso === 'Retroperitoneal' ? row.via_acceso
+          : invalid(`${path}.via_acceso`),
     duracion: nullableNumber(row.duracion, `${path}.duracion`),
     rol: text(row.rol, `${path}.rol`),
     cirujano_senior: nullableText(row.cirujano_senior, `${path}.cirujano_senior`),
