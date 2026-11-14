@@ -1,6 +1,7 @@
 import SyncBanner from './components/SyncBanner';
 import { getSyncStatus, startSync, syncNow } from './sync/syncManager';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { IDLE_LOCK_MINUTES, useIdleLock } from './lib/idleLock';
 import { BrowserRouter, Route, Routes, Navigate, Link } from 'react-router-dom';
 import { assertDatabaseOwner, getDatabaseOwner, isDatabaseOpenFor, isWebDatabase, lockDatabase, mergeDatabaseContents, getDataStamp } from './db/database';
 import LocalDataGate from './components/LocalDataGate';
@@ -37,6 +38,7 @@ export default function App() {
   const [catalogError, setCatalogError] = useState('');
   const [catalogRetry, setCatalogRetry] = useState(0);
   const [restoreOffer, setRestoreOffer] = useState<RestoreOffer>(null);
+  const [lockNotice, setLockNotice] = useState('');
   const [passwordSetupMode, setPasswordSetupMode] = useState(() => hasPasswordSetupLink());
   const [privacyAccepted, setPrivacyAccepted] = useState(() => (
     localStorage.getItem(APP_CONFIG.privacyAcceptedKey) === 'true'
@@ -131,6 +133,20 @@ export default function App() {
     return startSync(user.id);
   }, [user?.id, dbReady, catalogReady, privacyAccepted]);
 
+  const lockLocalData = useCallback((notice = '') => {
+    lockDatabase();
+    setDbReady(false);
+    setCatalogReady(false);
+    setCatalogError('');
+    setRestoreOffer(null);
+    setLockNotice(notice);
+  }, []);
+
+  // Only the web vault has a local passphrase to fall back to after an automatic lock.
+  useIdleLock(!!user && dbReady && isWebDatabase(), () => {
+    lockLocalData(`Tus registros se han bloqueado tras ${IDLE_LOCK_MINUTES} minutos sin actividad. Introduce tu clave local para seguir.`);
+  });
+
   if (!authReady) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', gap: 16 }}>
@@ -184,7 +200,7 @@ export default function App() {
   }
 
   if (!dbReady || !isDatabaseOpenFor(user.id)) {
-    return <LocalDataGate key={user.id} user={user} onOpen={() => setDbReady(true)} onLogout={() => setUser(null)} />;
+    return <LocalDataGate key={user.id} user={user} notice={lockNotice} onOpen={() => { setLockNotice(''); setDbReady(true); }} onLogout={() => { setLockNotice(''); setUser(null); }} />;
   }
 
   if (catalogError) {
@@ -203,7 +219,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <Layout key={user.id} user={user} onLogout={() => setUser(null)} onLock={isWebDatabase() ? () => { lockDatabase(); setDbReady(false); setCatalogReady(false); setCatalogError(''); setRestoreOffer(null); } : undefined}>
+      <Layout key={user.id} user={user} onLogout={() => setUser(null)} onLock={isWebDatabase() ? () => lockLocalData() : undefined}>
         <SyncBanner />
         <CatalogReviewBanner />
         {restoreOffer && (
@@ -211,7 +227,7 @@ export default function App() {
             <div>
               <p style={{ fontWeight: 'bold', margin: 0 }}>Copia en Google Drive encontrada</p>
               <p style={{ fontSize: 13, margin: 0 }}>{new Date(restoreOffer.date).toLocaleString()}</p>
-              <p style={{ fontSize: 12, margin: '4px 0 0' }}>Abre Ajustes, pega tu clave de respaldo y restaura desde Google Drive.</p>
+              <p style={{ fontSize: 12, margin: '4px 0 0' }}>Abre Ajustes y restaura desde Google Drive. Si te pide clave, usa tu clave de respaldo o tu clave de sincronización.</p>
             </div>
             <Link to="/ajustes" style={{ background: 'white', color: 'var(--primary)', padding: '6px 12px', borderRadius: 4, textDecoration: 'none', fontWeight: 'bold', fontSize: 13 }} onClick={() => setRestoreOffer(null)}>
               Abrir ajustes

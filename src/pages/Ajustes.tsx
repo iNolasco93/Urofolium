@@ -4,8 +4,12 @@ import { type ChangeEvent, type ReactNode, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getCurrentUser, updateAccountProfile } from '../auth/authService';
 import {
+  adoptSyncKeyForBackups,
+  confirmBackupKeySaved,
   createBackupNow,
   createManualBackup,
+  getBackupKeyStatus,
+  type BackupKeyStatus,
   getBackupPassphrase,
   getLastBackupInfo,
   getOrCreateBackupPassphrase,
@@ -38,6 +42,7 @@ export default function Ajustes() {
   const [displayName, setDisplayName] = useState('');
   const [residencyStartMonth, setResidencyStartMonth] = useState('');
   const [openInfo, setOpenInfo] = useState<InfoSection | null>(null);
+  const [keyStatus, setKeyStatus] = useState<BackupKeyStatus | null>(null);
 
   useEffect(() => {
     getCurrentUser().then(currentUser => {
@@ -53,6 +58,7 @@ export default function Ajustes() {
   const loadBackupInfo = async () => {
     const info = await getLastBackupInfo();
     setBackupInfo(info);
+    setKeyStatus(await getBackupKeyStatus());
   };
 
   const refreshGoogleState = async () => {
@@ -103,6 +109,21 @@ export default function Ajustes() {
   const handleSaveBackupKey = () => wrapAction(async () => {
     await updateBackupPassphrase(backupKey);
     return 'Clave de respaldo guardada. Los próximos backups usarán esta clave.';
+  });
+
+  const handleConfirmBackupKey = () => wrapAction(async () => {
+    if (backupKey.trim()) await updateBackupPassphrase(backupKey);
+    await confirmBackupKeySaved();
+    return 'Perfecto. Las copias en Google Drive quedan activadas con esta clave.';
+  });
+
+  const handleAdoptSyncKey = () => wrapAction(async () => {
+    const accepted = window.confirm('Las próximas copias usarán tu clave de sincronización. Las copias antiguas seguirán necesitando la clave anterior: guárdala hasta que tengas una copia nueva. ¿Continuar?');
+    if (!accepted) return 'Sin cambios.';
+    const key = await adoptSyncKeyForBackups();
+    setBackupKey(key);
+    setShowBackupKey(true);
+    return 'Listo: una sola clave de recuperación sirve ahora para la sincronización y para las copias. Crea una copia nueva para que también use esta clave.';
   });
 
   const handleExportManualBackup = () => wrapAction(async () => {
@@ -248,6 +269,14 @@ export default function Ajustes() {
           </button>
         </div>
 
+        <BackupKeyNotice
+          status={keyStatus}
+          busy={busy}
+          keyVisible={showBackupKey}
+          onConfirm={handleConfirmBackupKey}
+          onAdoptSyncKey={handleAdoptSyncKey}
+        />
+
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
           <button className="btn-primary" onClick={handleExportManualBackup} disabled={busy}>
             Exportar backup cifrado
@@ -309,6 +338,11 @@ export default function Ajustes() {
             <p style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 12 }}>
               Si hay cambios, la app intentará crear una copia automática diaria mientras esta sesión siga activa.
             </p>
+            {!keyStatus?.confirmed && (
+              <p style={{ fontSize: 13, color: 'var(--danger)', marginBottom: 12 }}>
+                Copias en Drive en pausa: confirma en «Backup cifrado manual» que has guardado tu clave de respaldo.
+              </p>
+            )}
             <p style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 12 }}>
               Para restaurar en otro navegador o dispositivo, escribe antes la misma clave de respaldo usada al crear la copia.
             </p>
@@ -319,7 +353,7 @@ export default function Ajustes() {
             </div>
 
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button className="btn-primary" onClick={handleCreateGoogleBackup} disabled={busy}>Crear copia ahora</button>
+              <button className="btn-primary" onClick={handleCreateGoogleBackup} disabled={busy || !keyStatus?.confirmed}>Crear copia ahora</button>
               <button className="btn-ghost" onClick={handleRestoreGoogleBackup} disabled={busy}>Restaurar copia</button>
               <button className="btn-ghost" onClick={handleConnectGoogle} disabled={busy}>Renovar acceso</button>
             </div>
@@ -348,6 +382,65 @@ function downloadBlob(blob: Blob, filename: string): void {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+function BackupKeyNotice({
+  status,
+  busy,
+  keyVisible,
+  onConfirm,
+  onAdoptSyncKey,
+}: {
+  status: BackupKeyStatus | null;
+  busy: boolean;
+  keyVisible: boolean;
+  onConfirm: () => void;
+  onAdoptSyncKey: () => void;
+}) {
+  if (!status) return null;
+  return (
+    <div
+      role="status"
+      style={{
+        background: status.confirmed ? 'var(--bg)' : 'var(--info-bg)',
+        border: `1px solid ${status.confirmed ? 'var(--border)' : 'var(--info-border)'}`,
+        borderRadius: 8,
+        padding: 12,
+        marginBottom: 12,
+        fontSize: 13,
+      }}
+    >
+      {status.sameAsSyncKey ? (
+        <p style={{ margin: '0 0 8px' }}>
+          ✓ Tus copias usan tu <strong>clave de sincronización</strong>. Con guardar esa única clave de recuperación puedes recuperarlo todo.
+        </p>
+      ) : status.syncKeyAvailable ? (
+        <>
+          <p style={{ margin: '0 0 8px' }}>
+            Tus copias usan una clave distinta de la clave de sincronización. Puedes unificarlas para guardar una sola clave de recuperación.
+          </p>
+          <button className="btn-ghost" onClick={onAdoptSyncKey} disabled={busy} style={{ marginBottom: 8 }}>
+            Usar la clave de sincronización para las copias
+          </button>
+        </>
+      ) : null}
+      {status.confirmed ? (
+        <p style={{ margin: 0 }}>✓ Has confirmado que esta clave está guardada fuera de la app. Las copias en Google Drive están activas.</p>
+      ) : (
+        <>
+          <p style={{ margin: '0 0 8px' }}>
+            <strong>Las copias en Google Drive están en pausa</strong> hasta que confirmes que has guardado esta clave, por ejemplo en tu gestor de contraseñas. Sin ella, esas copias no se podrían abrir.
+          </p>
+          <button className="btn-primary" onClick={onConfirm} disabled={busy || !keyVisible}>
+            Ya he guardado la clave
+          </button>
+          {!keyVisible && (
+            <p style={{ margin: '6px 0 0', color: 'var(--text2)' }}>Pulsa antes «Mostrar/crear clave» para verla.</p>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 function InfoHeader({

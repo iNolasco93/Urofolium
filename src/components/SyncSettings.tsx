@@ -12,7 +12,7 @@ export default function SyncSettings() {
     <p style={{ fontSize: 13 }}>Tus casos se sincronizan entre dispositivos de la misma cuenta. Cada cirugía viaja con sus detalles de litiasis. Puedes registrar sin conexión y sincronizar al recuperarla.</p>
     <p style={{ fontSize: 13, margin: '10px 0' }}><strong>Estado:</strong> {labels[status.phase]}{status.lastSyncedAt ? ` · ${new Date(status.lastSyncedAt).toLocaleString()}` : ''}</p>
     {status.phase === 'error' && <p role="alert" style={{ color: 'var(--danger)', fontSize: 13 }}>{status.message}</p>}
-    <p style={{ fontSize: 13 }}>En otro dispositivo, inicia sesión, abre el almacenamiento local e introduce una vez esta clave de sincronización. Es distinta de la contraseña de acceso, la clave local y la clave de respaldo.</p>
+    <p style={{ fontSize: 13 }}>En otro dispositivo, inicia sesión, abre el almacenamiento local e introduce una vez esta clave de sincronización. Es tu clave de recuperación: distinta de la contraseña de acceso y de la clave local. Si la usas también para las copias (Ajustes → Backup cifrado manual), abre además tus copias de seguridad.</p>
     <p style={{ fontSize: 13, margin: '10px 0' }}>Guárdala en tu gestor de contraseñas. Si pierdes la clave y todos los dispositivos vinculados, necesitarás un backup independiente para recuperar los registros.</p>
     {key && <input aria-label="Clave de sincronización" type={visible ? 'text' : 'password'} value={key} readOnly autoComplete="off" style={{ marginBottom: 8 }} />}
     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>

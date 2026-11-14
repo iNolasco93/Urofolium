@@ -57,7 +57,8 @@ export type MetaKey =
   | 'last_backup_drive_file_id'
   | 'last_restore_at'
   | 'device_label'
-  | 'last_data_changed_at';
+  | 'last_data_changed_at'
+  | 'backup_key_confirmed';
 
 // ─── Formato del archivo de backup ──────────────────────────────────────────
 export interface BackupPayload {

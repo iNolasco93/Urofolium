@@ -12,16 +12,16 @@ function payload() {
 }
 
 async function harness() {
-  const state = { owner: 'account-a', payload: payload(), filename: null, replaced: false, meta: {}, key: null, replacementError: false, changeDuringDecrypt: false };
+  const state = { owner: 'account-a', payload: payload(), filename: null, replaced: false, meta: {}, key: null, replacementError: false, changeDuringDecrypt: false, savedKey: 'synthetic-backup-passphrase', secrets: {}, acceptKey: null, uploads: 0 };
   const modules = {
     '@capacitor/core': 'export const Capacitor={getPlatform:()=>"web"};',
     '../auth/authService': 'export const getCurrentUser=async()=>({id:"account-a",email:"a@example.test"});',
     '../db/procedureRepository': 'export const getAllProcedures=async()=>[];',
     '../db/stoneRepository': 'export const getAllStoneDetails=async()=>[];',
-    '../db/database': `export const runLocalWrite=async(id,task)=>task();export const getDatabaseOwner=()=>state.owner;export const assertDatabaseOwner=(id)=>{if(id!==state.owner)throw Error('Account changed')};export const replaceDatabaseContents=async()=>{if(state.replacementError)throw Error('Storage failure');state.replaced=true;};`,
-    '../db/metaRepository': 'export const getMeta=async()=>null; export const setMeta=async(key,value)=>{state.meta[key]=value;};',
-    './cryptoService': 'export const getPassphrase=async()=>"synthetic-backup-passphrase";export const savePassphrase=async(value)=>{state.key=value;};export const generatePassphrase=()=>"synthetic-generated-key";export const encrypt=async()=>new Blob();export const decrypt=async()=>{if(state.changeDuringDecrypt)state.owner="account-b";return state.payload;};',
-    '../google/driveService': 'export const downloadLatestBackup=async(name)=>{state.filename=name;return new Blob();};export const uploadFileToDrive=async()=>"file";export const rotateWeeklyBackup=async()=>{};export const findFileByName=async()=>null;',
+    '../db/database': `export const runLocalWrite=async(id,task)=>task();export const getDatabaseOwner=()=>state.owner;export const assertDatabaseOwner=(id)=>{if(id!==state.owner)throw Error('Account changed')};export const replaceDatabaseContents=async()=>{if(state.replacementError)throw Error('Storage failure');state.replaced=true;};export const getLocalSecret=async(key)=>state.secrets[key]??null;`,
+    '../db/metaRepository': 'export const getMeta=async(key)=>state.meta[key]??null; export const setMeta=async(key,value)=>{state.meta[key]=value;};',
+    './cryptoService': 'export const getPassphrase=async()=>state.key??state.savedKey;export const savePassphrase=async(value)=>{state.key=value;};export const generatePassphrase=()=>"synthetic-generated-key";export const encrypt=async()=>new Blob();export const decrypt=async(blob,key)=>{if(state.acceptKey&&key!==state.acceptKey)throw Error("Error al descifrar");if(state.changeDuringDecrypt)state.owner="account-b";return state.payload;};',
+    '../google/driveService': 'export const downloadLatestBackup=async(name)=>{state.filename=name;return new Blob();};export const uploadFileToDrive=async()=>{state.uploads++;return "file";};export const rotateWeeklyBackup=async()=>{};export const findFileByName=async()=>null;',
     '../config/appConfig': 'export const APP_CONFIG={backupPrefix:"urofolium"};',
   };
   const compiled = await build({entryPoints:[resolve('src/backup/backupService.ts')],bundle:true,write:false,platform:'node',format:'cjs',plugins:[{name:'backup-adapters',setup(builder){
@@ -29,7 +29,7 @@ async function harness() {
     builder.onLoad({filter:/.*/,namespace:'fixture'},args=>({contents:modules[args.path],loader:'js'}));
   }}]});
   const module={exports:{}};
-  runInNewContext(compiled.outputFiles[0].text,{module,exports:module.exports,state,Blob,Date,Set,Map,Error});
+  runInNewContext(compiled.outputFiles[0].text,{module,exports:module.exports,state,Blob,Date,Set,Map,Error,crypto,TextEncoder,Uint8Array,Array});
   return { api: module.exports, state };
 }
 
@@ -57,4 +57,31 @@ test('switching accounts during decryption cancels restoration before replacing 
   const {api,state}=await harness();state.changeDuringDecrypt=true;
   await assert.rejects(api.restoreBackupNow(),/Account changed/);
   assert.equal(state.replaced,false);assert.deepEqual(state.meta,{});
+});
+
+test('a first backup key reuses the sync key so the user keeps a single recovery key',async()=>{
+  const {api,state}=await harness();state.savedKey=null;state.secrets.sync_key_v1='synthetic-sync-key-0123456789';
+  assert.equal(await api.getOrCreateBackupPassphrase(),'synthetic-sync-key-0123456789');
+  assert.equal(state.key,'synthetic-sync-key-0123456789');
+  assert.equal((await api.getBackupKeyStatus()).sameAsSyncKey,true);
+});
+
+test('Drive copies stay paused until the exact current key is confirmed',async()=>{
+  const {api,state}=await harness();state.meta.last_data_changed_at='2026-10-18T12:00:00.000Z';
+  assert.equal(await api.checkAndAutoBackup(),false);
+  await assert.rejects(api.createBackupNow(),/clave de respaldo/);
+  assert.equal(state.uploads,0);
+  await api.confirmBackupKeySaved();
+  assert.equal((await api.getBackupKeyStatus()).confirmed,true);
+  assert.equal(await api.checkAndAutoBackup(),true);
+  assert.equal(state.uploads,1);
+  await api.updateBackupPassphrase('synthetic-changed-backup-key');
+  assert.equal((await api.getBackupKeyStatus()).confirmed,false);
+});
+
+test('restoring without the old backup key falls back to the recovery (sync) key',async()=>{
+  const {api,state}=await harness();state.secrets.sync_key_v1='synthetic-sync-key-0123456789';state.acceptKey='synthetic-sync-key-0123456789';
+  assert.equal(await api.restoreBackupNow('synthetic-wrong-key'),0);
+  assert.equal(state.replaced,true);
+  assert.equal(state.key,null);
 });

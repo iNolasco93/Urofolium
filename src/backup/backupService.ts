@@ -3,7 +3,7 @@ import { Capacitor } from '@capacitor/core';
 import { getCurrentUser } from '../auth/authService';
 import { getAllProcedures } from '../db/procedureRepository';
 import { getAllStoneDetails } from '../db/stoneRepository';
-import { assertDatabaseOwner, getDatabaseOwner, replaceDatabaseContents, runLocalWrite } from '../db/database';
+import { assertDatabaseOwner, getDatabaseOwner, getLocalSecret, replaceDatabaseContents, runLocalWrite } from '../db/database';
 import { CURRENT_SCHEMA_VERSION } from '../db/migrations';
 import { getMeta, setMeta } from '../db/metaRepository';
 import { encrypt, decrypt, getPassphrase, savePassphrase, generatePassphrase } from './cryptoService';
@@ -17,17 +17,71 @@ const APP_VERSION = '1.0.0';
 const BACKUP_VERSION = 6;
 const LATEST_FILENAME = `${APP_CONFIG.backupPrefix}-backup-latest.json.enc`;
 const AUTO_BACKUP_INTERVAL_HOURS = 24;
+/** Same secret name as the sync manager. Reusing it leaves the user a single recovery key. */
+const SYNC_KEY = 'sync_key_v1';
 
 async function ensurePassphrase(): Promise<string> {
   const ownerId = getDatabaseOwner();
   let pass = await getPassphrase();
   assertDatabaseOwner(ownerId);
   if (!pass) {
-    pass = generatePassphrase();
+    pass = (await getLocalSecret(SYNC_KEY)) ?? generatePassphrase();
+    assertDatabaseOwner(ownerId);
     await savePassphrase(pass);
     assertDatabaseOwner(ownerId);
   }
   return pass;
+}
+
+export interface BackupKeyStatus {
+  hasKey: boolean;
+  /** The backup key is the sync key, so one saved key recovers both. */
+  sameAsSyncKey: boolean;
+  syncKeyAvailable: boolean;
+  /** The user confirmed having saved this exact key outside the app. */
+  confirmed: boolean;
+}
+
+async function keyFingerprint(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`urofolium-backup-key:${value}`));
+  return Array.from(new Uint8Array(digest).slice(0, 16), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+export async function getBackupKeyStatus(): Promise<BackupKeyStatus> {
+  const ownerId = getDatabaseOwner();
+  const pass = await getPassphrase();
+  assertDatabaseOwner(ownerId);
+  const syncKey = await getLocalSecret(SYNC_KEY);
+  assertDatabaseOwner(ownerId);
+  const confirmedFingerprint = await getMeta('backup_key_confirmed');
+  assertDatabaseOwner(ownerId);
+  return {
+    hasKey: !!pass,
+    sameAsSyncKey: !!pass && pass === syncKey,
+    syncKeyAvailable: !!syncKey,
+    confirmed: !!pass && confirmedFingerprint === await keyFingerprint(pass),
+  };
+}
+
+/** Changing the key later invalidates the confirmation, because it stores the key fingerprint. */
+export async function confirmBackupKeySaved(): Promise<void> {
+  const ownerId = getDatabaseOwner();
+  const pass = await getPassphrase();
+  assertDatabaseOwner(ownerId);
+  if (!pass) throw new Error('Primero muestra o crea la clave de respaldo.');
+  const fingerprint = await keyFingerprint(pass);
+  assertDatabaseOwner(ownerId);
+  await setMeta('backup_key_confirmed', fingerprint);
+}
+
+export async function adoptSyncKeyForBackups(): Promise<string> {
+  const ownerId = getDatabaseOwner();
+  const syncKey = await getLocalSecret(SYNC_KEY);
+  assertDatabaseOwner(ownerId);
+  if (!syncKey) throw new Error('Este dispositivo todavía no tiene clave de sincronización. Sincroniza primero.');
+  await savePassphrase(syncKey);
+  assertDatabaseOwner(ownerId);
+  return syncKey;
 }
 
 export async function getBackupPassphrase(): Promise<string | null> {
@@ -72,6 +126,11 @@ async function buildBackupPayload(): Promise<BackupPayload> {
 
 export async function createBackupNow(): Promise<void> {
   const ownerId = getDatabaseOwner();
+  // A copy nobody can decrypt is worse than no copy: require a confirmed key first.
+  if (!(await getBackupKeyStatus()).confirmed) {
+    throw new Error('Antes de subir copias a Google Drive, confirma en Ajustes que has guardado tu clave de respaldo.');
+  }
+  assertDatabaseOwner(ownerId);
   const blob = await createEncryptedBackupBlob();
   assertDatabaseOwner(ownerId);
   const fileId = await uploadFileToDrive(blob, LATEST_FILENAME);
@@ -128,13 +187,30 @@ async function restoreBackupFromBlob(blob: Blob, passphrase?: string): Promise<n
   const cleanPassphrase = passphrase?.trim();
   const savedPassphrase = await getPassphrase();
   assertDatabaseOwner(user.id);
-  const passphraseToUse = cleanPassphrase || savedPassphrase;
+  const syncKey = await getLocalSecret(SYNC_KEY);
+  assertDatabaseOwner(user.id);
+  // Try the typed key first, then this device's backup key, then the recovery (sync) key.
+  const candidates = [...new Set([cleanPassphrase, savedPassphrase, syncKey].filter((value): value is string => !!value))];
 
-  if (!passphraseToUse) {
+  if (candidates.length === 0) {
     throw new Error('No hay clave de respaldo guardada. Escribe la clave usada al crear el backup y vuelve a restaurar.');
   }
 
-  const payload = validateBackupPayload(await decrypt(blob, passphraseToUse), {
+  let decrypted: object | null = null;
+  let usedKey = '';
+  let lastError: unknown = null;
+  for (const candidate of candidates) {
+    try {
+      decrypted = await decrypt(blob, candidate);
+      usedKey = candidate;
+      break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (!decrypted) throw lastError;
+
+  const payload = validateBackupPayload(decrypted, {
     userId: user.id,
     maxBackupVersion: BACKUP_VERSION,
     maxSchemaVersion: CURRENT_SCHEMA_VERSION,
@@ -147,7 +223,7 @@ async function restoreBackupFromBlob(blob: Blob, passphrase?: string): Promise<n
     payload.data.personalProcedures,
   );
   assertDatabaseOwner(user.id);
-  if (cleanPassphrase) await savePassphrase(cleanPassphrase);
+  if (cleanPassphrase && usedKey === cleanPassphrase) await savePassphrase(cleanPassphrase);
   assertDatabaseOwner(user.id);
   await setMeta('last_restore_at', new Date().toISOString());
   assertDatabaseOwner(user.id);
@@ -163,6 +239,8 @@ export async function getLastBackupInfo(): Promise<BackupInfo> {
 
 export async function checkAndAutoBackup(): Promise<boolean> {
   const ownerId = getDatabaseOwner();
+  if (!(await getBackupKeyStatus()).confirmed) return false;
+  assertDatabaseOwner(ownerId);
   const lastBackupAt = await getMeta('last_backup_at');
   assertDatabaseOwner(ownerId);
   const lastDataChangedAt = await getMeta('last_data_changed_at');

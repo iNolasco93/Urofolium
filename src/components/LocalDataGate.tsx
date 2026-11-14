@@ -3,9 +3,9 @@ import { initDatabase, inspectLocalData, isDatabaseOpenFor, lockDatabase } from 
 import { signOut } from '../auth/authService';
 import type { AuthUser } from '../lib/types';
 
-interface Props { user: AuthUser; onOpen: () => void; onLogout: () => void; }
+interface Props { user: AuthUser; onOpen: () => void; onLogout: () => void; notice?: string; }
 
-export default function LocalDataGate({ user, onOpen, onLogout }: Props) {
+export default function LocalDataGate({ user, onOpen, onLogout, notice }: Props) {
   const [status, setStatus] = useState<Awaited<ReturnType<typeof inspectLocalData>> | null>(null);
   const [passphrase, setPassphrase] = useState('');
   const [confirmation, setConfirmation] = useState('');
@@ -55,6 +55,7 @@ export default function LocalDataGate({ user, onOpen, onLogout }: Props) {
       <div className="card" style={{ width: '100%', maxWidth: 500 }}>
         <h1 style={{ fontSize: 22, marginBottom: 12 }}>Tus registros en este dispositivo</h1>
         <p style={{ overflowWrap: 'anywhere', marginBottom: 16 }}>{user.email}</p>
+        {notice && !error && <p role="status" style={{ color: 'var(--text2)', marginBottom: 16 }}>{notice}</p>}
         {error && <p role="alert" style={{ color: 'var(--danger)', marginBottom: 16 }}>{error}</p>}
         {!status ? <p>Comprobando almacenamiento…</p> : (
           <form onSubmit={submit}>
